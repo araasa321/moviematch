@@ -146,3 +146,76 @@ def test_sort_by_can_be_overridden():
     args = sync_tmdb.parse_args(["--mode", "bootstrap", "--dry-run",
                                  "--sort-by", "popularity.desc"])
     assert args.sort_by == "popularity.desc"
+
+
+# ------------------------------------------------- dedup + per-type --limit
+def test_known_ids_skip_before_fetching_details(fakes):
+    """Re-running over a filled decade must not re-fetch every title."""
+    client, _qdrant, _embedder = fakes
+    items = _run(_collect(client, "movie"))
+    known = {point_id("movie", 155), point_id("movie", 272), point_id("movie", 27205)}
+    before = client.calls
+    ready = _run(sync_tmdb.fetch_and_build(client, "movie", items, year_now=2026,
+                                           stats=sync_tmdb.Stats(), known=known))
+    titles = {r["payload"]["title"] for r in ready}
+    assert "The Dark Knight" not in titles
+    assert "Inception" not in titles
+    # one call per *unknown* title only
+    assert client.calls - before <= len(items) - len(known)
+
+
+def test_per_type_limit_lets_both_types_run(monkeypatch):
+    """The old global limit filled movies and never reached series.
+
+    Drives the real bootstrap() with fake TMDB/Qdrant and asserts both media
+    types are visited and each type gets its own budget.
+    """
+    import argparse
+
+    visited: list[str] = []
+
+    class RecordingTMDB(FakeTMDB):
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def details(self, media_type, tmdb_id):
+            visited.append(media_type)
+            return await super().details(media_type, tmdb_id)
+
+    class TinyQdrant(FakeQdrant):
+        pass
+
+    args = argparse.Namespace(
+        mode="bootstrap", types=["movie", "series"], limit=1, new_cap=50,
+        active_pages=1, max_pages=1, rate=50.0, batch=8, model="x",
+        recreate=False, dry_run=False, stats_out=None,
+        tmdb_token="t", qdrant_url="http://x", qdrant_key="k",
+        decades=[2020], year_from=None, year_to=None, recent_only=True,
+        no_recent_pass=True, min_votes=None, sort_by="vote_count.desc",
+    )
+
+    real_fetch = sync_tmdb.fetch_and_build
+
+    async def fake_fetch(client, media_type, candidates, **kw):
+        return await real_fetch(client, media_type, list(candidates), **kw)
+
+    monkeypatch.setattr(sync_tmdb, "TMDBClient", lambda *a, **k: RecordingTMDB())
+    monkeypatch.setattr(sync_tmdb, "QdrantClient", lambda *a, **k: TinyQdrant())
+    monkeypatch.setattr(sync_tmdb, "Embedder", lambda *a, **k: FakeEmbedder())
+    monkeypatch.setattr(sync_tmdb, "fetch_and_build", fake_fetch)
+
+    _run(sync_tmdb.bootstrap(args))
+    # with a per-type limit of 1, at least one title of EACH type must be fetched
+    assert "movie" in visited, visited
+    assert "series" in visited, visited
+
+
+def test_recency_pass_also_uses_known_set():
+    import inspect
+
+    source = inspect.getsource(sync_tmdb.bootstrap)
+    recent_section = source.split("no_recent_pass")[1]
+    assert "known=done" in recent_section

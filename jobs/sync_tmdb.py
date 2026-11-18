@@ -110,19 +110,31 @@ async def fetch_and_build(client: TMDBClient, media_type: str,
                           candidates: Iterable[dict[str, Any]], *,
                           year_now: int, stats: Stats, limit: int | None = None,
                           trakt_ids: set[int] | None = None,
-                          dry_run: bool = False) -> list[dict[str, Any]]:
-    """Details -> normalize -> policy -> text. Embeddings happen in `upsert_ready`."""
+                          dry_run: bool = False,
+                          known: set[str] | None = None) -> list[dict[str, Any]]:
+    """Details -> normalize -> policy -> text. Embeddings happen in `upsert_ready`.
+
+    `known` is the set of point ids already in the collection. They are filtered
+    out BEFORE the per-title `/details` call: re-running over an already-filled
+    decade used to re-fetch every title just to discard it as a duplicate, which
+    made repeat runs slow and burned TMDB quota for nothing.
+    """
     trakt_ids = trakt_ids or set()
+    known = known or set()
     ready: list[dict[str, Any]] = []
     seen: set[int] = set()
+    skipped = 0
 
     for item in candidates:
-        if limit is not None and len(ready) + stats.upserted >= limit:
+        if limit is not None and len(ready) >= limit:
             break
         tmdb_id = int(item.get("id") or 0)
         if not tmdb_id or tmdb_id in seen:
             continue
         seen.add(tmdb_id)
+        if point_id(media_type, tmdb_id) in known:
+            skipped += 1
+            continue
         stats.fetched += 1
         try:
             details = await client.details(media_type, tmdb_id)
@@ -147,6 +159,10 @@ async def fetch_and_build(client: TMDBClient, media_type: str,
         payload["text_hash"] = text_hash(text)
         ready.append({"payload": payload, "text": text})
 
+    if skipped:
+        stats.skipped_existing += skipped
+        log.info("%s: skipped %s already-indexed titles before fetching details",
+                 media_type, skipped)
     stats.calls = client.calls
     return ready
 
@@ -221,8 +237,13 @@ async def bootstrap(args: argparse.Namespace) -> Stats:
                 policy.SERIES_MIN_VOTES
             if args.min_votes is not None:
                 threshold = args.min_votes
-            # slice by decade so a crash only loses one slice
+            # --limit is a PER-TYPE budget. It used to be global, so "movie series"
+            # with a limit filled movies and silently never reached series.
+            type_target = args.limit
+            type_written = 0
             for decade in years:
+                if type_target is not None and type_written >= type_target:
+                    break
                 span_start, span_end = decade, min(decade + 9, year_now)
                 window = {
                     "vote_count.gte": threshold,
@@ -245,21 +266,24 @@ async def bootstrap(args: argparse.Namespace) -> Stats:
                     # sort_by is a named parameter of discover(); it must NOT go
                     # through **window or it collides ("multiple values").
                     sort_by=args.sort_by or "popularity.desc", **window)]
+                remaining = (None if type_target is None
+                             else max(0, type_target - type_written))
                 ready = await fetch_and_build(client, media_type, items,
                                               year_now=year_now, stats=stats,
+                                              limit=remaining, known=done,
                                               dry_run=args.dry_run)
+                before = stats.upserted
                 await upsert_ready(qdrant, embedder, ready, stats,
                                    existing=done, dry_run=args.dry_run)
                 done.update(point_id(r["payload"]["media_type"], r["payload"]["tmdb_id"])
                             for r in ready)
-                log.info("after %s-%s: %s", span_start, span_end, stats.line())
-                if args.limit and stats.upserted >= args.limit:
-                    log.info("hit --limit %s", args.limit)
-                    break
+                type_written += stats.upserted - before
+                log.info("after %s %s-%s: %s", media_type, span_start, span_end, stats.line())
                 if args.recent_only:
                     break
-            if args.limit and stats.upserted >= args.limit:
-                break
+            if type_target is not None:
+                log.info("%s: wrote %s of %s requested this run", media_type,
+                         type_written, type_target)
 
         # PLAN §5 recency clause: the newest titles have no vote threshold yet.
         # Skipped only when the caller limited the run (that's a probe, not a fill).
@@ -273,7 +297,7 @@ async def bootstrap(args: argparse.Namespace) -> Stats:
                 ready = await fetch_and_build(client, media_type,
                                               recent.get("results") or [],
                                               year_now=year_now, stats=stats,
-                                              dry_run=args.dry_run)
+                                              known=done, dry_run=args.dry_run)
                 await upsert_ready(qdrant, embedder, ready, stats, existing=done,
                                    dry_run=args.dry_run)
                 done.update(point_id(r["payload"]["media_type"], r["payload"]["tmdb_id"])
