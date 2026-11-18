@@ -31,9 +31,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from addon.ids import point_id                                    # noqa: E402
-from addon.qdrant import QdrantClient                             # noqa: E402
 from jobs import policy                                            # noqa: E402
 from jobs.embed import build_text, text_hash                       # noqa: E402
+from jobs.qdrant_client import QdrantClient                        # noqa: E402
 from jobs.tmdb import TMDBClient, download_export                  # noqa: E402
 
 log = logging.getLogger("sync")
