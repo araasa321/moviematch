@@ -38,6 +38,24 @@ VALID_TYPES = {"movie", "series"}
 DEV_SECRET = "dev-secret-please-set-INSTALL_SECRET"
 
 
+def _public_origin(request: Any) -> str:
+    """Public origin behind a TLS-terminating proxy (Koyeb).
+
+    Koyeb forwards `X-Forwarded-Proto: https` and the public host, but the header
+    carrying the host has varied (`X-Forwarded-Host` vs plain `Host`), and a wrong
+    guess yields an `http://<internal>:8000/...` install URL that Stremio refuses.
+    So: prefer forwarded headers, fall back to Host, and never emit plain http.
+    """
+    headers = getattr(request, "headers", {}) or {}
+    proto = (headers.get("x-forwarded-proto") or "https").split(",")[0].strip().lower()
+    host = (headers.get("x-forwarded-host")
+            or headers.get("host")
+            or request.url.netloc).split(",")[0].strip()
+    if not proto.startswith("http"):
+        proto = "https"
+    return f"{proto}://{host}"
+
+
 def make_app(store: MemoryStore | None = None,
              history_provider: Callable[[], dict[str, Any]] | None = None,
              dim: int = 384,
@@ -76,10 +94,7 @@ def make_app(store: MemoryStore | None = None,
         return config, None
 
     def base_url(request: Request) -> str:
-        # Koyeb terminates TLS and forwards the original scheme/host
-        proto = request.headers.get("x-forwarded-proto", request.url.scheme)
-        host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
-        return f"{proto}://{host}"
+        return _public_origin(request)
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
@@ -121,12 +136,23 @@ def make_app(store: MemoryStore | None = None,
     async def configure(request: Request) -> HTMLResponse:
         blob = Config(secret=current_secret(),
                       mode=os.environ.get("MODE_DEFAULT", "blockbuster")).encode()
-        url = f"{base_url(request)}/{blob}/manifest.json"
+        # Self-check: if this round-trips, a decoded config failure is transport corruption.
+        try:
+            round_trip_ok = Config.decode(blob).secret == current_secret()
+        except ConfigError:
+            round_trip_ok = False
+        origin = base_url(request)
+        https_url = f"{origin}/{blob}/manifest.json"
+        https_url = https_url if https_url.startswith("https://") else https_url.replace(
+            "http://", "https://", 1)
+        stremio_url = https_url[len("https://"):]
         return HTMLResponse(
             "<h1>MovieMatch</h1>"
             "<p>Minimal /configure placeholder — the real page lands in M4.</p>"
-            f'<p>Install URL: <a href="stremio://{url[8:]}">{url}</a></p>'
-            f'<p><a href="{url}">Open manifest JSON</a></p>'
+            f'<p><a href="stremio://{stremio_url}"><b>Install in Stremio</b></a></p>'
+            f'<p>Or open: <a href="{https_url}">{https_url}</a></p>'
+            f"<p style='font-size:12px'>config round-trip: "
+            f"{'OK' if round_trip_ok else 'FAILED'} · origin seen by app: {origin}</p>"
             '<p style="font-size:12px">This product uses the TMDB API but is not '
             "endorsed or certified by TMDB.</p>"
         )
