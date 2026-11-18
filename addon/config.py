@@ -87,7 +87,14 @@ class Config:
 
 
 def secret_ok(given: str, expected: str) -> bool:
-    """Constant-time comparison; an unset INSTALL_SECRET must never authorise."""
+    """Constant-time comparison; an unset INSTALL_SECRET must never authorise.
+
+    Surrounding whitespace is trimmed on BOTH sides: platform env-var UIs happily
+    store a trailing newline pasted from a terminal, which silently turned every
+    install URL into a 403 (`secret_configured: true` yet rejected).
+    """
+    given = (given or "").strip()
+    expected = (expected or "").strip()
     if not expected or not given:
         return False
     return hmac.compare_digest(

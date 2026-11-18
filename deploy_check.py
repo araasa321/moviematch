@@ -105,6 +105,56 @@ def main() -> int:
     if cfg.configured:
         failures.append("empty env must leave Trakt unconfigured")
 
+    # --- with a Qdrant-backed store (the case that 500'd on Koyeb) -------------
+    print("\n--- with Qdrant store attached ---")
+    failures += _check_qdrant_store()
+
+
+def _check_qdrant_store() -> list[str]:
+    """Coerce: /health must not assume len() on the store."""
+    import asyncio
+
+    import numpy as np
+
+    from addon.ids import point_id
+    from addon.main import make_app as _make_app
+    from addon.store import QdrantStore, Record
+
+    class _Client:
+        async def count(self):
+            return 1
+
+        async def retrieve(self, ids, **_):
+            return []
+
+        async def scroll_all(self, **_):
+            return []
+
+        async def search(self, *a, **k):
+            return []
+
+    rec = Record(point_id("movie", 155), np.ones(384, dtype=np.float32),
+                 {"tmdb_id": 155, "media_type": "movie", "imdb_id": "tt0468569",
+                  "title": "The Dark Knight", "year": 2008, "language": "en",
+                  "poster": "/p.jpg", "vote_average": 8.5, "vote_count": 32000,
+                  "popularity": 120.0, "director": "Christopher Nolan", "cast": []})
+    app = _make_app(store=QdrantStore(client=_Client()))
+    route = next(r for r in app.routes
+                 if getattr(r, "path", None) == "/health" and "GET" in r.methods)
+    try:
+        body = asyncio.run(route.endpoint())
+    except Exception as exc:  # noqa: BLE001
+        print(f"/health (qdrant)  RAISED {type(exc).__name__}: {exc}")
+        return [f"/health crashed with a Qdrant store: {exc}"]
+    print(f"/health (qdrant)  ok  store={body['store']} catalog={body['catalog_size']}")
+    problems = []
+    if body["store"] != "qdrant":
+        problems.append("/health should report store=qdrant")
+    if "HEAD" not in route.methods:
+        problems.append("/health must accept HEAD (Koyeb health check)")
+    _ = rec
+    return problems
+
     if failures:
         print("\nFAILED:")
         for item in failures:

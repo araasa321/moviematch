@@ -108,33 +108,48 @@ def make_app(store: Any | None = None,
         return _public_origin(request)
 
     @app.get("/health")
+    @app.head("/health")
     async def health() -> dict[str, Any]:
-        """Koyeb probe (§11.3). Never fails the request: degraded info is in the body."""
+        """Koyeb probe (§11.3). Never fails the request: degraded info is in the body.
+
+        HEAD is registered too: Koyeb's health checker sends HEAD, and FastAPI's
+        router does not answer HEAD for a GET route, which produced 405s in the
+        instance log.
+        """
         history = await current_history()
         plan = build_row(store, history, "movie", "foryou", Config())
         qdrant_cfg = QdrantConfig.from_env(os.environ)
         qdrant_status: dict[str, Any] = {"configured": qdrant_cfg.configured,
                                          "reachable": False}
+        total: int | None = None
         if qdrant_cfg.configured:
             try:
+                total = await QdrantClient(qdrant_cfg).count()
                 qdrant_status["reachable"] = True
-                qdrant_status["catalog_size"] = await QdrantClient(qdrant_cfg).count()
+                qdrant_status["catalog_size"] = total
             except Exception as exc:  # noqa: BLE001 - health must not 500
                 qdrant_status["error"] = str(exc)[:160]
                 qdrant_status["reachable"] = False
         else:
             qdrant_status["mode"] = "fixture (QDRANT_URL unset)"
 
+        # len() only exists on the in-memory fixture store; never assume it
+        store_size = len(store) if hasattr(store, "__len__") else None
+        if total is None:
+            total = store_size
         return {
             "status": "ok",
             "version": __version__,
+            "store": "qdrant" if isinstance(store, QdrantStore) else "fixture",
             "qdrant": qdrant_status,
-            "trakt": "fixture",
-            "trakt_auth": "fixture",
-            "catalog_size": len(store),
+            "trakt": "trakt" if trakt.config.configured else "fixture",
+            "trakt_auth": "configured" if trakt.config.configured else "fixture",
+            "catalog_size": total,
+            "store_size": store_size,
             "positive_signals": plan.positive_count,
             "taste_ready": plan.taste.ready,
             "rows_ready": len(plan.ranked),
+            "row_cache_size": len(row_cache),
             "started_at": started.isoformat(),
             "secret_configured": current_secret() != DEV_SECRET,
         }
@@ -243,5 +258,6 @@ def _fixture_store(dim: int) -> MemoryStore:
 
 
 app = make_app()
+
 
 
