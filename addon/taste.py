@@ -77,6 +77,7 @@ def _utcnow(now: datetime | None) -> datetime:
 def compute_taste(signals: Sequence[Signal], dislike_signals: Sequence[Signal] = (),
                   now: datetime | None = None, dim: int = 384) -> Taste:
     now = _utcnow(now)
+    dim = _infer_dim(signals, dislike_signals, fallback=dim)
     stable_num = np.zeros(dim, dtype=np.float64)
     stable_den = 0.0
     recent_num = np.zeros(dim, dtype=np.float64)
@@ -135,6 +136,21 @@ def compute_taste(signals: Sequence[Signal], dislike_signals: Sequence[Signal] =
     taste.query = query
     taste.ready = positives >= MIN_POSITIVE_SIGNALS
     return taste
+
+
+def _infer_dim(signals: Sequence[Signal], dislikes: Sequence[Signal],
+               fallback: int = 384) -> int:
+    """Derive vector width from the data.
+
+    The production model is 384-d, but hardcoding it meant any other store
+    (tests, a future bge swap) crashed with a broadcast error deep in the maths.
+    """
+    for group in (signals, dislikes):
+        for sig in group:
+            width = int(np.asarray(sig.vector).shape[-1]) if np.ndim(sig.vector) else 0
+            if width:
+                return width
+    return fallback
 
 
 def _stack(signals: Iterable[Signal], dim: int) -> np.ndarray | None:

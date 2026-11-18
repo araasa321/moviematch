@@ -203,10 +203,8 @@ def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
             return RowPlan([], taste, count_positive_signals(state), excluded, {"reason": "cold_start"})
         query = taste.query
 
-    pool = [rec for rec in store.get_all(media_type)
-            if rec.point_id not in excluded
-            and guard_reasons(rec.payload, media_type=media_type, langs=config.langs,
-                              year_now=year_now) is None]
+    pool = _candidate_pool(store, query, media_type=media_type, langs=config.langs,
+                           excluded=excluded, year_now=year_now, ann_limit=ann_limit)
 
     year_seed = (seed_title.payload.get("year") if seed_title is not None
                  else median_year(state.watched_years))
@@ -215,7 +213,7 @@ def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
 
     ranked = rank(
         query,
-        [rec.to_candidate() for rec in pool],
+        pool,
         mode=config.mode,
         year_seed=year_seed,
         seed_director=seed_director,
@@ -229,7 +227,35 @@ def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
     )
     return RowPlan(ranked, taste, count_positive_signals(state), excluded,
                    {"year_seed": year_seed, "row": row, "media_type": media_type,
-                    "ann_limit": ann_limit})
+                    "ann_limit": ann_limit, "pool": len(pool),
+                    "pool_source": "ann" if hasattr(store, "search") else "scan"})
+
+
+def _candidate_pool(store: Store, query: np.ndarray, *, media_type: str,
+                    langs: Sequence[str], excluded: set[str], year_now: int,
+                    ann_limit: int) -> list[Candidate]:
+    """Candidates for ranking.
+
+    Large catalogs are queried with ANN (Qdrant does the distance maths and the
+    §9.1 filters); the in-memory stores used by tests scan directly. Both paths
+    apply `guard_reasons` so behaviour is identical.
+    """
+    if hasattr(store, "search"):
+        try:
+            records = store.search(query, media_type=media_type, limit=ann_limit,
+                                   langs=langs, exclude=excluded)
+        except Exception:  # noqa: BLE001 - fall back rather than fail the row
+            records = []
+        if records:
+            return [rec.to_candidate() for rec in records
+                    if rec.point_id not in excluded
+                    and guard_reasons(rec.payload, media_type=media_type, langs=langs,
+                                      year_now=year_now) is None]
+
+    return [rec.to_candidate() for rec in store.get_all(media_type)
+            if rec.point_id not in excluded
+            and guard_reasons(rec.payload, media_type=media_type, langs=langs,
+                              year_now=year_now) is None]
 
 
 def because_query(seed_title: Any, taste: Taste) -> np.ndarray:

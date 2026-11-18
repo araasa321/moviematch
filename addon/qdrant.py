@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Iterable, Sequence
 
 import httpx
 
@@ -20,6 +20,37 @@ log = logging.getLogger(__name__)
 VECTOR_DIM = 384
 TITLES = "titles"
 USER_STATE = "user_state"
+
+
+def payload_filter(*, media_type: str | None = None, langs: Sequence[str] | None = None,
+                   min_votes: int | None = None, exclude: Iterable[str] | None = None,
+                   has_imdb: bool = True) -> dict[str, Any]:
+    """Qdrant filter for the §9.1 guards. Empty clauses are omitted entirely.
+
+    `imdb_id` is REQUIRED for Stremio (§4.1); Qdrant treats null/missing as empty.
+    """
+    must: list[dict[str, Any]] = []
+    must_not: list[dict[str, Any]] = []
+
+    if media_type:
+        must.append({"key": "media_type", "match": {"value": media_type}})
+    if langs:
+        must.append({"key": "language", "match": {"any": list(langs)}})
+    if min_votes is not None:
+        must.append({"key": "vote_count", "range": {"gte": min_votes}})
+    if has_imdb:
+        must_not.append({"is_empty": {"key": "imdb_id"}})
+    if exclude:
+        ids = list(exclude)
+        if ids:
+            must_not.append({"has_id": ids})
+
+    clause: dict[str, Any] = {}
+    if must:
+        clause["must"] = must
+    if must_not:
+        clause["must_not"] = must_not
+    return clause
 
 
 @dataclass(frozen=True)
@@ -101,4 +132,27 @@ class QdrantClient:
         data = await self._request("POST", f"/collections/{collection}/points",
                                    {"ids": list(ids), "with_payload": with_payload,
                                     "with_vector": with_vector})
-        return data.get("result") or []
+        result = data.get("result")
+        return result if isinstance(result, list) else []
+
+    async def scroll_all(self, *, collection: str = TITLES, limit: int = 1000,
+                         with_payload: bool = True, pages: int = 100) -> list[dict[str, Any]]:
+        """Page through the collection; capped by `pages` so a request can't run away."""
+        out: list[dict[str, Any]] = []
+        offset = None
+        for _ in range(pages):
+            body: dict[str, Any] = {"limit": limit, "with_payload": with_payload,
+                                    "with_vector": True}
+            if offset is not None:
+                body["offset"] = offset
+            data = await self._request("POST", f"/collections/{collection}/points/scroll",
+                                       body, params={"wait": "true"})
+            result = data.get("result")
+            if not isinstance(result, dict):
+                break
+            chunk = result.get("points") or []
+            out.extend(chunk)
+            offset = result.get("next_page_offset")
+            if offset is None or not chunk:
+                break
+        return out

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -27,15 +28,17 @@ from .fixtures import catalog as fixture_catalog
 from .fixtures import trakt_history
 from .memory_store import MemoryStore, load_records_from_json
 from .qdrant import QdrantClient, QdrantConfig
-from .rows import build_row, build_user_state, to_metas
+from .rows import RowPlan, build_row, build_user_state, to_metas
+from .store import QdrantStore
 from .stremio import PAGE_SIZE, build_manifest, catalog_response, parse_extra, safe_skip
 from .trakt import TraktClient, TraktConfig
-
-log = logging.getLogger(__name__)
 
 VALID_ROWS = {"foryou", "because", "new4you"}
 VALID_TYPES = {"movie", "series"}
 DEV_SECRET = "dev-secret-please-set-INSTALL_SECRET"
+ROW_CACHE_SECONDS = 900          # §11.3 catalogs: 900 s
+
+log = logging.getLogger(__name__)
 
 
 def _public_origin(request: Any) -> str:
@@ -56,18 +59,26 @@ def _public_origin(request: Any) -> str:
     return f"{proto}://{host}"
 
 
-def make_app(store: MemoryStore | None = None,
+def make_app(store: Any | None = None,
              history_provider: Callable[[], dict[str, Any]] | None = None,
              dim: int = 384,
              trakt: TraktClient | None = None) -> FastAPI:
-    """Factory so tests and smoke runs inject data instead of calling TMDB/Trakt."""
-    store = store if store is not None else _fixture_store(dim)
+    """Factory so tests and smoke runs inject data instead of calling TMDB/Trakt.
+
+    When `store` is omitted and QDRANT_URL is set, serving reads the real catalog
+    from Qdrant; otherwise it falls back to the bundled fixture catalog.
+    """
+    qdrant_store = QdrantStore.from_env(os.environ) if store is None else None
+    store = store if store is not None else (qdrant_store or _fixture_store(dim))
+    log.info("serving store: %s", "qdrant" if qdrant_store else "fixture")
     trakt = trakt or TraktClient(TraktConfig.from_env(os.environ))
     started = datetime.now(timezone.utc)
+    row_cache: dict[tuple, tuple[float, RowPlan]] = {}
 
     app = FastAPI(title="MovieMatch", version=__version__)
     app.state.store = store
     app.state.trakt = trakt
+    app.state.row_cache = row_cache
 
     async def current_history() -> dict[str, Any]:
         """Trakt when configured; the bundled fixture otherwise. Never raises."""
@@ -183,9 +194,28 @@ def make_app(store: MemoryStore | None = None,
             return error
         if media_type not in VALID_TYPES or row not in VALID_ROWS:
             return JSONResponse({"metas": []}, status_code=404)
-        plan = build_row(store, await current_history(), media_type, row, config)
+        plan = await _cached_plan(config, media_type, row)
         metas = to_metas(plan.ranked, skip=safe_skip(extra), limit=PAGE_SIZE)
         return JSONResponse(catalog_response(metas), headers={"Cache-Control": "max-age=900"})
+
+    async def _cached_plan(config: Config, media_type: str, row: str) -> RowPlan:
+        """Rank once per (row, type, mode) and reuse for ~15 min (§11.3).
+
+        Ranking 70k titles on every Stremio request would blow the client's ~10 s
+        timeout on a cold Koyeb instance; the cache makes only the FIRST request
+        pay the cost.
+        """
+        key = (row, media_type, config.mode)
+        now = time.monotonic()
+        cached = row_cache.get(key)
+        if cached and now - cached[0] < ROW_CACHE_SECONDS:
+            return cached[1]
+        history = await current_history()
+        plan = build_row(store, history, media_type, row, config)
+        # a transient failure must not be cached for 15 minutes
+        if plan.ranked:
+            row_cache[key] = (now, plan)
+        return plan
 
     return app
 
