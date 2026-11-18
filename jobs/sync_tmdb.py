@@ -213,26 +213,38 @@ async def bootstrap(args: argparse.Namespace) -> Stats:
         done = set()
 
     year_now = datetime.now(timezone.utc).year
+    years = bootstrap_years(args)
+    log.info("bootstrap years: %s", _describe_years(years))
     async with TMDBClient(args.tmdb_token, rate=args.rate) as client:
         for media_type in args.types:
-            threshold = (policy.SERIES_MIN_VOTES if media_type == "series"
-                         else policy.MOVIE_MIN_VOTES)
+            threshold = policy.MOVIE_MIN_VOTES if media_type == "movie" else \
+                policy.SERIES_MIN_VOTES
+            if args.min_votes is not None:
+                threshold = args.min_votes
             # slice by decade so a crash only loses one slice
-            for decade in range(1960, year_now - 1, 10):
+            for decade in years:
+                span_start, span_end = decade, min(decade + 9, year_now)
                 window = {
                     "vote_count.gte": threshold,
-                    "primary_release_date.gte": f"{decade}-01-01",
-                    "primary_release_date.lte": f"{min(decade + 9, year_now)}-12-31",
+                    "primary_release_date.gte": f"{span_start}-01-01",
+                    "primary_release_date.lte": f"{span_end}-12-31",
                 }
                 if media_type == "series":
                     window = {
                         "vote_count.gte": threshold,
-                        "first_air_date.gte": f"{decade}-01-01",
-                        "first_air_date.lte": f"{min(decade + 9, year_now)}-12-31",
+                        "first_air_date.gte": f"{span_start}-01-01",
+                        "first_air_date.lte": f"{span_end}-12-31",
                     }
-                log.info("bootstrap %s %s-%s", media_type, decade, decade + 9)
+                # Within a decade, walk by vote count instead of current popularity:
+                # popularity is *today's* buzz, so it buries a 1995 classic under a
+                # 2024 release. Inside a fixed year window, votes ≈ "known film".
+                log.info("bootstrap %s %s-%s (votes>=%s, sort=%s)", media_type, span_start,
+                         span_end, threshold, args.sort_by or "popularity.desc")
                 items = [item async for item in client.iter_discover(
-                    media_type, max_pages=args.max_pages, **window)]
+                    media_type, max_pages=args.max_pages,
+                    # sort_by is a named parameter of discover(); it must NOT go
+                    # through **window or it collides ("multiple values").
+                    sort_by=args.sort_by or "popularity.desc", **window)]
                 ready = await fetch_and_build(client, media_type, items,
                                               year_now=year_now, stats=stats,
                                               dry_run=args.dry_run)
@@ -240,27 +252,61 @@ async def bootstrap(args: argparse.Namespace) -> Stats:
                                    existing=done, dry_run=args.dry_run)
                 done.update(point_id(r["payload"]["media_type"], r["payload"]["tmdb_id"])
                             for r in ready)
+                log.info("after %s-%s: %s", span_start, span_end, stats.line())
                 if args.limit and stats.upserted >= args.limit:
                     log.info("hit --limit %s", args.limit)
+                    break
+                if args.recent_only:
                     break
             if args.limit and stats.upserted >= args.limit:
                 break
 
-        # recent window with no vote threshold (PLAN §5 recency clause)
-        for media_type in args.types:
-            recent = await client.discover(
-                media_type, 1, sort_by="primary_release_date.desc",
-                **({"primary_release_date.gte": f"{year_now - 1}-01-01"}
-                   if media_type == "movie" else {"first_air_date.gte": f"{year_now - 1}-01-01"}))
-            ready = await fetch_and_build(client, media_type,
-                                          recent.get("results") or [],
-                                          year_now=year_now, stats=stats,
-                                          dry_run=args.dry_run)
-            await upsert_ready(qdrant, embedder, ready, stats, existing=done,
-                               dry_run=args.dry_run)
-            done.update(point_id(r["payload"]["media_type"], r["payload"]["tmdb_id"])
-                        for r in ready)
+        # PLAN §5 recency clause: the newest titles have no vote threshold yet.
+        # Skipped only when the caller limited the run (that's a probe, not a fill).
+        if not args.no_recent_pass:
+            for media_type in args.types:
+                date_field = ("primary_release_date" if media_type == "movie"
+                              else "first_air_date")
+                recent = await client.discover(
+                    media_type, 1, sort_by=f"{date_field}.desc",
+                    **{f"{date_field}.gte": f"{year_now - 1}-01-01"})
+                ready = await fetch_and_build(client, media_type,
+                                              recent.get("results") or [],
+                                              year_now=year_now, stats=stats,
+                                              dry_run=args.dry_run)
+                await upsert_ready(qdrant, embedder, ready, stats, existing=done,
+                                   dry_run=args.dry_run)
+                done.update(point_id(r["payload"]["media_type"], r["payload"]["tmdb_id"])
+                            for r in ready)
     return stats
+
+
+def bootstrap_years(args: argparse.Namespace) -> list[int]:
+    """Decade starts to crawl, newest first.
+
+    The original crawl went 1960 -> 2020 in order, so a partial run filled the
+    catalog with 1960s/70s films and the user's For You row was all classic movies.
+    Newest-first means even an interrupted run leaves a *modern* catalog.
+    """
+    year_now = datetime.now(timezone.utc).year
+    if args.decades:
+        starts = []
+        for token in args.decades:
+            start = int(token)
+            starts.append(start - start % 10)
+        starts = sorted(set(starts), reverse=True)
+    elif args.year_from or args.year_to:
+        low = args.year_from if args.year_from is not None else 1900
+        high = args.year_to if args.year_to is not None else year_now
+        starts = sorted(set(range(low - low % 10, high + 1, 10)), reverse=True)
+    else:
+        starts = list(range(1960, year_now, 10))
+        starts.sort(reverse=True)
+    return [s for s in starts if s <= year_now]
+
+
+def _describe_years(starts: list[int]) -> str:
+    return ", ".join(f"{s}-{s + 9}" for s in starts) if starts else "(none)"
 
 
 # ----------------------------------------------------------------- nightly
@@ -358,6 +404,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--active-pages", type=int, default=25,
                         help="discover pages for the votes refresh")
     parser.add_argument("--max-pages", type=int, default=500)
+    parser.add_argument("--sort-by", default="vote_count.desc",
+                        help="discover sort inside each decade slice. Default walks "
+                             "biggest titles first; 'popularity.desc' = current buzz")
+    # --- which decades to crawl (bootstrap_years reads all of these) -----------
+    parser.add_argument("--decades", nargs="+", default=None, metavar="YEAR",
+                        help="only these decades, e.g. --decades 1990 2000 2010 2020")
+    parser.add_argument("--year-from", type=int, default=None,
+                        help="crawl decades starting at this year (e.g. 1990)")
+    parser.add_argument("--year-to", type=int, default=None,
+                        help="crawl decades up to this year (e.g. 2026)")
+    parser.add_argument("--recent-only", action="store_true",
+                        help="crawl just the newest decade pass, then stop")
+    parser.add_argument("--no-recent-pass", action="store_true",
+                        help="skip the 0-vote recency pass (probes only)")
+    parser.add_argument("--min-votes", type=int, default=None,
+                        help="override the vote_count threshold for every slice")
     parser.add_argument("--rate", type=float, default=float(os.environ.get("TMDB_RATE", "15")))
     parser.add_argument("--batch", type=int, default=64)
     parser.add_argument("--model", default="sentence-transformers/all-MiniLM-L6-v2")

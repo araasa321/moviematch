@@ -117,3 +117,32 @@ def test_cli_requires_credentials_without_dry_run(monkeypatch):
     monkeypatch.delenv("TMDB_API_KEY", raising=False)
     with pytest.raises(SystemExit):
         sync_tmdb.parse_args(["--mode", "nightly"])
+
+
+# ------------------------------------------------ decade ordering and sorting
+def test_bootstrap_crawls_newest_decades_first():
+    """A partial run must leave a MODERN catalog, not a 1960s one."""
+    args = sync_tmdb.parse_args(["--mode", "bootstrap", "--dry-run"])
+    years = sync_tmdb.bootstrap_years(args)
+    assert years == sorted(years, reverse=True), years
+    assert years[0] >= 2020
+
+
+def test_bootstrap_respects_explicit_year_range():
+    args = sync_tmdb.parse_args(["--mode", "bootstrap", "--dry-run",
+                                 "--year-from", "1990", "--year-to", "2026"])
+    years = sync_tmdb.bootstrap_years(args)
+    assert years[0] == 2020 and years[-1] == 1990
+    assert all(1990 <= y <= 2026 for y in years)
+
+
+def test_default_sort_is_vote_count_not_popularity():
+    """Popularity is today's buzz; inside a decade that buries 1995 classics."""
+    args = sync_tmdb.parse_args(["--mode", "bootstrap", "--dry-run"])
+    assert args.sort_by == "vote_count.desc"
+
+
+def test_sort_by_can_be_overridden():
+    args = sync_tmdb.parse_args(["--mode", "bootstrap", "--dry-run",
+                                 "--sort-by", "popularity.desc"])
+    assert args.sort_by == "popularity.desc"
