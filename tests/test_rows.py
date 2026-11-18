@@ -194,7 +194,11 @@ def test_http_surface_serves_manifest_and_catalog(store, history, secret):
     try:
         with httpx.Client(timeout=5.0) as client:
             health = client.get(f"{base}/health").json()
-            assert health["catalog_size"] == 12 and health["taste_ready"] is True
+            # /health is a cheap liveness probe: no ranking, no Trakt sync
+            assert health["catalog_size"] == 12 and health["status"] == "ok"
+            assert "rows_ready" not in health, "/health must not rank rows"
+            deep = client.get(f"{base}/health/deep").json()
+            assert deep["taste_ready"] is True and deep["rows_ready"] >= 0
 
             redirect = client.get(f"{base}/manifest.json", follow_redirects=False)
             assert redirect.status_code == 302 and redirect.headers["location"] == "/configure"

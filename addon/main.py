@@ -110,14 +110,13 @@ def make_app(store: Any | None = None,
     @app.get("/health")
     @app.head("/health")
     async def health() -> dict[str, Any]:
-        """Koyeb probe (§11.3). Never fails the request: degraded info is in the body.
+        """Cheap liveness probe (§11.3). Never fails; degraded info is in the body.
 
-        HEAD is registered too: Koyeb's health checker sends HEAD, and FastAPI's
-        router does not answer HEAD for a GET route, which produced 405s in the
-        instance log.
+        This must NOT rank rows or fetch Trakt. The original version called
+        build_row() to report `rows_ready`, which meant every probe did a full
+        Trakt sync + Qdrant ANN + ranking — 8.6 s per probe on a 0.1-vCPU instance
+        and a direct contributor to pegged CPU. Deep checks live on /health/deep.
         """
-        history = await current_history()
-        plan = build_row(store, history, "movie", "foryou", Config())
         qdrant_cfg = QdrantConfig.from_env(os.environ)
         qdrant_status: dict[str, Any] = {"configured": qdrant_cfg.configured,
                                          "reachable": False}
@@ -146,12 +145,27 @@ def make_app(store: Any | None = None,
             "trakt_auth": "configured" if trakt.config.configured else "fixture",
             "catalog_size": total,
             "store_size": store_size,
+            "row_cache_size": len(row_cache),
+            "row_cache_keys": sorted("/".join(k) for k in row_cache),
+            "started_at": started.isoformat(),
+            "secret_configured": current_secret() != DEV_SECRET,
+        }
+
+    @app.get("/health/deep")
+    async def health_deep() -> dict[str, Any]:
+        """Expensive diagnostics: Trakt sync + ranking. Never polled by Koyeb."""
+        history = await current_history()
+        started_at = time.monotonic()
+        plan = build_row(store, history, "movie", "foryou", Config())
+        return {
             "positive_signals": plan.positive_count,
             "taste_ready": plan.taste.ready,
             "rows_ready": len(plan.ranked),
-            "row_cache_size": len(row_cache),
-            "started_at": started.isoformat(),
-            "secret_configured": current_secret() != DEV_SECRET,
+            "pool_source": plan.diagnostics.get("pool_source"),
+            "pool": plan.diagnostics.get("pool"),
+            "trakt_items": sum(len(history.get(k) or []) for k in
+                               ("watched", "ratings", "watchlist")),
+            "seconds": round(time.monotonic() - started_at, 2),
         }
 
     @app.get("/manifest.json")
