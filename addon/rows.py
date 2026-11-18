@@ -115,15 +115,35 @@ def build_user_state(store: Store, history: dict[str, Any], *,
     state = UserState()
     last_seen: dict[str, datetime] = {}
 
+    watched = history.get("watched", [])
+    ratings = history.get("ratings", [])
+    watchlist = history.get("watchlist", [])
+
+    # Resolve every referenced title in ONE batch. Per-item `store.get()` meant one
+    # network round trip (and one thread) per watched/rated entry, which pinned a
+    # 0.1-vCPU Koyeb instance at 100% CPU.
+    wanted: list[str] = []
+    for item in (*watched, *ratings, *watchlist):
+        key = id_from_trakt_item(item, "movie")
+        if key is not None:
+            wanted.append(point_id(*key))
+    records: dict[str, Any] = {}
+    if wanted:
+        fetcher = getattr(store, "get_many", None)
+        if callable(fetcher):
+            records = fetcher(wanted)
+        else:
+            records = {pid: rec for pid in wanted if (rec := store.get(pid)) is not None}
+
     def join(item: dict[str, Any]) -> tuple[str, Any] | None:
         key = id_from_trakt_item(item, "movie")
         if key is None:
             return None
         media_type, tmdb = key
-        rec = store.get(point_id(media_type, tmdb))
+        rec = records.get(point_id(media_type, tmdb))
         return (media_type, rec) if rec is not None else None
 
-    for item in history.get("watched", []):
+    for item in watched:
         joined = join(item)
         if joined is None:
             continue
@@ -140,7 +160,7 @@ def build_user_state(store: Store, history: dict[str, Any], *,
             last_seen[rec.point_id] = at
             state.last_watched[media_type] = rec.point_id
 
-    for item in history.get("ratings", []):
+    for item in ratings:
         joined = join(item)
         if joined is None:
             continue
@@ -153,7 +173,7 @@ def build_user_state(store: Store, history: dict[str, Any], *,
         elif weight:
             state.signals.append(Signal(rec.vector, weight, at, "rating"))
 
-    for item in history.get("watchlist", []):
+    for item in watchlist:
         joined = join(item)
         if joined is None:
             continue

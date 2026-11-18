@@ -13,6 +13,7 @@ scrolls the whole collection and refuses past `get_all_limit`.
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import time
 from dataclasses import dataclass, field
@@ -69,21 +70,35 @@ class QdrantStore:
         return cls(QdrantClient(config)) if config.configured else None
 
     # ------------------------------------------------------------ protocol
+    def get_many(self, point_ids: Sequence[str]) -> dict[str, Record]:
+        """Batch lookup — ONE round trip for the whole Trakt history.
+
+        `build_user_state` needs every watched/rated/watchlist title. Doing that
+        with per-id `get()` meant one thread + event loop + HTTP client per item,
+        which pinned the instance at 100% CPU on the live deployment.
+        """
+        ids = [pid for pid in dict.fromkeys(point_ids) if pid]
+        if not ids:
+            return {}
+        found = {pid: rec for pid in ids if (rec := self._cache.get(pid)) is not None}
+        missing = [pid for pid in ids if pid not in found]
+        if not missing:
+            return found
+        try:
+            rows = _run(self.client.retrieve(missing, with_payload=True, with_vector=True))
+        except Exception as exc:  # noqa: BLE001 - serves empty rather than 500
+            log.warning("qdrant retrieve failed: %s", type(exc).__name__)
+            return found
+        for raw in rows:
+            record = _record(raw)
+            if record is not None:
+                found[record.point_id] = record
+                self._cache[record.point_id] = record
+        return found
+
     def get(self, point_id: str) -> Record | None:
         """Point lookup used by Trakt joins (watched/rated titles)."""
-        import asyncio
-
-        if point_id in self._cache:
-            return self._cache[point_id]
-        try:
-            rows = _run(self.client.retrieve([point_id], with_payload=True, with_vector=True))
-        except Exception as exc:  # noqa: BLE001
-            log.warning("qdrant retrieve failed: %s", type(exc).__name__)
-            return None
-        record = _record(rows[0]) if rows else None
-        if record is not None:
-            self._cache[point_id] = record
-        return record
+        return self.get_many([point_id]).get(point_id)
 
     def get_all(self, media_types: str | Iterable[str] | None = None) -> Sequence[Record]:
         """Whole-collection scan. Small collections only; cached for `_cache_ttl`."""
@@ -131,16 +146,24 @@ class QdrantStore:
         return records
 
 
+_EXECUTOR: concurrent.futures.ThreadPoolExecutor | None = None
+
+
 def _run(coro: Any) -> Any:
-    """Run a coroutine from sync code (Stremio handlers are sync by nature)."""
+    """Run a coroutine from sync code (Stremio handlers are sync by nature).
+
+    Reuses ONE worker thread for the process. Creating a thread + event loop per
+    call (the original approach) burned CPU under load; callers should also use
+    `get_many` so a request makes one round trip, not one per item.
+    """
     import asyncio
 
+    global _EXECUTOR
     try:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
-    # Already inside a loop (FastAPI async handler): run in a worker thread's own loop.
-    import concurrent.futures
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
+    if _EXECUTOR is None:
+        _EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2,
+                                                           thread_name_prefix="qdrant")
+    return _EXECUTOR.submit(asyncio.run, coro).result()
