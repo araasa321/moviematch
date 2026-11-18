@@ -21,6 +21,7 @@ from typing import Any, Callable
 
 import numpy as np
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from . import __version__
@@ -77,6 +78,18 @@ def make_app(store: Any | None = None,
     row_cache: dict[tuple, tuple[float, RowPlan]] = {}
 
     app = FastAPI(title="MovieMatch", version=__version__)
+    # Stremio Web (web.stremio.com) fetches manifests/catalogs CROSS-ORIGIN.
+    # Without Access-Control-Allow-Origin the browser blocks the response and the
+    # client reports "Failed to get addon manifest" while the server logs a clean
+    # 200 — the exact symptom that made this look like a URL problem.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["GET", "HEAD", "OPTIONS"],
+        allow_headers=["*"],
+        expose_headers=["*"],
+        max_age=86400,
+    )
     app.state.store = store
     app.state.trakt = trakt
     app.state.row_cache = row_cache
