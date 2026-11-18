@@ -15,12 +15,13 @@ from __future__ import annotations
 import logging
 import os
 import time
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 import numpy as np
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from . import __version__
 from .config import Config, ConfigError, secret_ok
@@ -171,6 +172,17 @@ def make_app(store: Any | None = None,
     @app.get("/manifest.json")
     async def bare_manifest() -> RedirectResponse:
         return RedirectResponse("/configure", status_code=302)
+
+    _static_dir = Path(__file__).parent / "static"
+
+    @app.get("/static/logo.png")
+    async def logo() -> FileResponse:
+        """The manifest advertises this URL; a 404 here makes clients reject the addon."""
+        path = _static_dir / "logo.png"
+        if not path.exists():
+            return JSONResponse({"err": "logo missing"}, status_code=404)
+        return FileResponse(path, media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=86400"})
 
     @app.get("/configure")
     async def configure(request: Request) -> HTMLResponse:

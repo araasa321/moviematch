@@ -74,7 +74,10 @@ def build_manifest(base_url: str, config_blob: str, seeds: dict[str, str] | None
         "resources": ["catalog"],
         "types": ["movie", "series"],
         "idPrefixes": ["tt"],
-        "behaviorHints": {"configurable": True, "configurationRequired": True},
+        # `configurationRequired` must stay False: the config is already baked into
+        # this URL. Setting it True made clients treat the addon as unconfigured and
+        # refuse to install. `configurable: True` still offers the setup page.
+        "behaviorHints": {"configurable": True, "configurationRequired": False},
         "catalogs": catalogs,
     }
 

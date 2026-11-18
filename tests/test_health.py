@@ -87,6 +87,35 @@ def test_health_route_accepts_head():
     assert "HEAD" in route.methods, "Koyeb's health checker sends HEAD"
 
 
+# ------------------------------------------------------- manifest essentials
+def test_manifest_does_not_claim_configuration_required():
+    """Clients refuse to install when this is True and the URL is already configured."""
+    from addon.stremio import build_manifest
+
+    manifest = build_manifest("https://app.test", "blob")
+    hints = manifest["behaviorHints"]
+    assert hints["configurationRequired"] is False
+    assert hints["configurable"] is True
+
+
+def test_logo_file_exists_and_is_png():
+    """manifest.logo points at /static/logo.png; a 404 makes clients reject the addon."""
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent / "addon" / "static" / "logo.png"
+    assert path.exists(), "/static/logo.png is advertised in the manifest but missing"
+    assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_logo_route_serves_the_file():
+    app = make_app()
+    route = next(r for r in app.routes if getattr(r, "path", None) == "/static/logo.png")
+    import asyncio
+
+    response = asyncio.run(route.endpoint())
+    assert getattr(response, "media_type", "") == "image/png"
+
+
 # ------------------------------------------------------------------ secrets
 @pytest.mark.parametrize("noisy", [" " + SECRET, SECRET + " ", SECRET + "\n",
                                    SECRET + "\r\n", "\t" + SECRET + "\n"])
