@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Model weights (re-fetch with eval/fetch_onnx.py)
+eval/model/
+*.onnx
+*.safetensors
+
+# Generated eval vectors (rebuildable from titles.json + the model)
+eval/data/*.npz
+
+# Local run outputs
+sync-stats.json
+bootstrap-stats.json
+*.log
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example

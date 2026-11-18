@@ -1,0 +1,31 @@
+name: nightly-sync
+
+on:
+  schedule: [{cron: "15 9 * * *"}]   # after TMDB's ~08:00 UTC export (PLAN §6.4)
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-minilm-v1
+      - run: pip install -r jobs/requirements.txt
+      - name: nightly sync
+        run: python jobs/sync_tmdb.py --mode nightly --stats-out sync-stats.json
+        env:
+          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-stats
+          path: sync-stats.json
+          if-no-files-found: ignore

@@ -1,0 +1,8 @@
+# runtime dependencies — HARD RULE: no ML libraries at serve time (PLAN §0.2 / §11.1)
+fastapi
+uvicorn
+httpx
+numpy
+jinja2
+cryptography
+tenacity

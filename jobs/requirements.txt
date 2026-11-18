@@ -1,0 +1,5 @@
+# ingest-job dependencies (GitHub Actions only — NEVER installed in the addon image)
+sentence-transformers>=3.0
+httpx>=0.27
+numpy>=1.26
+tenacity>=8.2

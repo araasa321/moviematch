@@ -1,0 +1,11 @@
+.git
+.github
+tests
+eval
+__pycache__
+*.pyc
+.pytest_cache
+smoke.py
+m1_smoke.py
+FINDINGS*.md
+requirements-dev.txt

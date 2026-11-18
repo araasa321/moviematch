@@ -1,0 +1,965 @@
+[
+ {
+  "name": "The Dark Knight",
+  "year": 2008,
+  "director": "Christopher Nolan",
+  "cast": [],
+  "overview": "The Dark Knight is a 2008 superhero film directed by Christopher Nolan, who co-wrote the screenplay with his brother Jonathan. Based on the DC Comics superhero Batman, it is the sequel to Batman Begins (2005), and the second installment in The Dark Knight trilogy. The plot follows the vigilante Batman, police lieutenant Jim Gordon, and district attorney Harvey Dent, who form an alliance to dismantle organized crime in Gotham City. Their efforts are derailed by the Joker, an anarchistic mastermind who seeks to test how far Batman will go to save the city from chaos. The cast includes Christian Bale, Michael Caine, Heath Ledger, Gary Oldman, Aaron Eckhart, Maggie Gyllenhaal, and Morgan Freeman.",
+  "franchise": "batman",
+  "note": "SEED"
+ },
+ {
+  "name": "Batman Begins",
+  "year": 2005,
+  "director": "Christopher Nolan",
+  "cast": [
+   "Christian Bale"
+  ],
+  "overview": "Batman Begins is a 2005 superhero film based on the DC Comics character Batman. Directed by Christopher Nolan, who co-wrote the screenplay with David S. Goyer, the film stars Christian Bale as Bruce Wayne / Batman, with Michael Caine, Liam Neeson, Katie Holmes, Gary Oldman, Cillian Murphy, Tom Wilkinson, Rutger Hauer, Ken Watanabe, and Morgan Freeman in supporting roles. The film reboots the Batman film series, telling the origin story of Bruce Wayne (Bale) from the death of his parents to his journey to become Batman and his fight to stop Ra's al Ghul (Neeson) and the Scarecrow (Murphy) from plunging Gotham City into chaos.",
+  "franchise": "batman",
+  "note": "collection"
+ },
+ {
+  "name": "The Dark Knight Rises",
+  "year": 2012,
+  "director": "Christopher Nolan",
+  "cast": [
+   "Christian Bale"
+  ],
+  "overview": "The Dark Knight Rises is a 2012 superhero film directed by Christopher Nolan, who co-wrote the screenplay with his brother Jonathan, and the story with David S. Goyer. Based on the DC Comics character Batman, it is the final installment in Nolan's The Dark Knight trilogy, and the sequel to The Dark Knight (2008). The film stars Christian Bale as Bruce Wayne / Batman, alongside Michael Caine, Gary Oldman, Anne Hathaway, Tom Hardy, Marion Cotillard, Joseph Gordon-Levitt, and Morgan Freeman. Set eight years after the events of The Dark Knight, it follows a retired Wayne being forced to resume his role as Batman to save Gotham City from nuclear destruction at the hands of the terrorist Bane (Hardy).",
+  "franchise": "batman",
+  "note": "collection"
+ },
+ {
+  "name": "Joker (2019 film)",
+  "year": 2019,
+  "director": "Todd Phillips",
+  "cast": [
+   "Joaquin Phoenix"
+  ],
+  "overview": "Joker is a 2019 American psychological thriller film directed by Todd Phillips, who co-wrote the screenplay with Scott Silver. Based on the DC Comics supervillain the Joker, it stars Joaquin Phoenix and provides an alternative origin story for the character. Against the backdrop of a decaying Gotham City, the film follows Arthur Fleck, a mentally ill party clown and aspiring stand-up comedian whose descent into moral nihilism inspires a violent countercultural revolution against the wealthy. Robert De Niro, Zazie Beetz, and Frances Conroy appear in supporting roles.",
+  "franchise": "batman",
+  "note": "same-world"
+ },
+ {
+  "name": "The Batman (film)",
+  "year": 2022,
+  "director": "Matt Reeves",
+  "cast": [],
+  "overview": "The Batman is a 2022 American superhero film directed by Matt Reeves from a screenplay he wrote with Peter Craig. Based on the DC Comics character Batman, it is a reboot of the Batman film franchise. Robert Pattinson stars as Bruce Wayne / Batman alongside Zoë Kravitz, Paul Dano, Jeffrey Wright, John Turturro, Peter Sarsgaard, Andy Serkis, and Colin Farrell. The film follows Batman, in his second year fighting crime in Gotham City, as he uncovers corruption with ties to his own family while pursuing the Riddler (Dano), a mysterious serial killer and terrorist targeting the city's elite. Warner Bros. Pictures distributed the film, which Reeves and Dylan Clark produced for DC Films.",
+  "franchise": "batman",
+  "note": "same-world"
+ },
+ {
+  "name": "Batman (1989 film)",
+  "year": 1989,
+  "director": "Tim Burton",
+  "cast": [
+   "Jack Nicholson"
+  ],
+  "overview": "Batman is a 1989 superhero film directed by Tim Burton and written by Sam Hamm and Warren Skaaren. Based on the DC Comics character, it is the first installment of Warner Bros.' initial Batman film series. The film stars Jack Nicholson, Michael Keaton, Kim Basinger, Robert Wuhl, Pat Hingle, Billy Dee Williams, Michael Gough, and Jack Palance. The film's score was composed by Danny Elfman, and songs were written by Prince. The film takes place early in the war on crime of the title character (Keaton) and depicts his conflict with his archenemy the Joker (Nicholson).",
+  "franchise": "batman",
+  "note": "same-world"
+ },
+ {
+  "name": "Batman Returns",
+  "year": 1992,
+  "director": "Tim Burton",
+  "cast": [],
+  "overview": "Batman Returns is a 1992 American superhero film directed by Tim Burton and written by Daniel Waters. Based on the DC Comics character Batman, it is the sequel to Batman (1989), also directed by Burton, and the second film in the Batman film series (1989–1997). The cast includes Michael Keaton, Danny DeVito, Michelle Pfeiffer, Christopher Walken, Michael Gough, Pat Hingle, and Michael Murphy. Set during Christmas in Gotham City, the film follows Batman (Keaton) as he confronts corrupt businessman Max Shreck (Walken) and deformed crime boss Oswald Cobblepot / the Penguin (DeVito), whose bid for power threatens the city. Their schemes are further complicated by Shreck's former secretary Selina Kyle (Pfeiffer), who seeks revenge against him as Catwoman.",
+  "franchise": "batman",
+  "note": "same-world"
+ },
+ {
+  "name": "Batman v Superman: Dawn of Justice",
+  "year": 2016,
+  "director": "Zack Snyder",
+  "cast": [
+   "Ben Affleck"
+  ],
+  "overview": "Batman v Superman: Dawn of Justice is a 2016 American superhero film based on the DC Comics characters Batman and Superman. Directed by Zack Snyder and written by Chris Terrio and David S. Goyer, it is a follow-up to Man of Steel (2013) and the second film in the DC Extended Universe (DCEU). The film stars Ben Affleck as Batman and Henry Cavill as Superman, alongside a cast including Amy Adams, Jesse Eisenberg, Diane Lane, Laurence Fishburne, Jeremy Irons, Holly Hunter, and Gal Gadot. Batman v Superman: Dawn of Justice is the first live-action film to feature Batman and Superman together, as well as the first live-action cinematic portrayal of Wonder Woman. In the film, criminal mastermind Lex Luthor manipulates Batman into a preemptive battle with Superman, whom Luthor is obsessed with destroying.",
+  "franchise": "batman",
+  "note": "same-world"
+ },
+ {
+  "name": "The Lego Batman Movie",
+  "year": 2017,
+  "director": "Chris McKay",
+  "cast": [],
+  "overview": "The Lego Batman Movie is a 2017 animated superhero comedy film based on characters created by DC Comics and the Lego Batman toy line. It was directed by Chris McKay from a screenplay that is based on a Seth Grahame-Smith story. The film is a collaboration between production houses from the United States, Australia and Denmark, the first spin-off in The Lego Movie franchise and the second installment overall. The film features Will Arnett reprising his role as Batman from The Lego Movie alongside Zach Galifianakis, Michael Cera, Rosario Dawson and Ralph Fiennes. The story follows Batman as he attempts to overcome his greatest fear while saving Gotham City from the Joker's latest scheme.",
+  "franchise": "batman",
+  "note": "same-world"
+ },
+ {
+  "name": "Joker: Folie à Deux",
+  "year": 2024,
+  "director": "Todd Phillips",
+  "cast": [],
+  "overview": "Joker: Folie à Deux is a 2024 American jukebox musical legal drama film directed by Todd Phillips from a screenplay he co-wrote with Scott Silver. Based on DC Comics characters, it is the sequel to Joker (2019). Joaquin Phoenix stars as Arthur Fleck / Joker, reprising his role from the first film, alongside Lady Gaga as Harleen \"Lee\" Quinzel. The main cast includes Brendan Gleeson, Catherine Keener and Zazie Beetz, with supporting appearances from Steve Coogan, Harry Lawtey, Leigh Gill and Connor Storrie. In the film, while awaiting trial for his crimes at Arkham State Hospital, Arthur develops a romantic relationship with fellow inmate Lee. As the trial begins, he questions his path when he realizes Lee and others only see him as the Joker.",
+  "franchise": "batman",
+  "note": "same-world"
+ },
+ {
+  "name": "Inception",
+  "year": 2010,
+  "director": "Christopher Nolan",
+  "cast": [
+   "Leonardo Di"
+  ],
+  "overview": "Inception is a 2010 science fiction heist film written and directed by Christopher Nolan, who also produced it with his wife Emma Thomas. The film stars Leonardo DiCaprio as a professional thief who steals information by infiltrating his targets' subconscious. He is offered a chance to have his criminal history erased as payment for implanting an idea into a target's subconscious. The ensemble cast includes Ken Watanabe, Joseph Gordon-Levitt, Marion Cotillard, Elliot Page, Tom Hardy, Cillian Murphy, Tom Berenger, Dileep Rao, and Michael Caine.",
+  "franchise": "nolan",
+  "note": "target"
+ },
+ {
+  "name": "The Prestige",
+  "year": 2006,
+  "director": "Christopher Nolan",
+  "cast": [
+   "Hugh Jackman"
+  ],
+  "overview": "The Prestige is a 2006 thriller film directed by Christopher Nolan, who co-wrote the screenplay with his brother Jonathan Nolan, based on the 1995 novel by Christopher Priest. Set in Victorian London, the film stars Hugh Jackman and Christian Bale as stage magicians who compete to create a superior teleportation illusion.",
+  "franchise": "nolan",
+  "note": "target"
+ },
+ {
+  "name": "Heat (1995 film)",
+  "year": 1995,
+  "director": "Michael Mann",
+  "cast": [],
+  "overview": "Heat is a 1995 American epic crime drama film written and directed by Michael Mann and starring Al Pacino, Robert De Niro, Tom Sizemore, Diane Venora, Amy Brenneman, Ashley Judd, Mykelti Williamson, Wes Studi, Ted Levine, Jon Voight, and Val Kilmer. In the film, LAPD detective Vincent Hanna (Pacino) attempts to apprehend career thief Neil McCauley, leading to strain on their professional lives and personal relationships.",
+  "franchise": "heist",
+  "note": "target"
+ },
+ {
+  "name": "Memento (film)",
+  "year": 2000,
+  "director": "Christopher Nolan",
+  "cast": [],
+  "overview": "Memento is a 2000 American neo-noir psychological thriller film written and directed by Christopher Nolan, based on the 2001 short story \"Memento Mori\" by his brother, Jonathan Nolan. Starring Guy Pearce, Carrie-Anne Moss, and Joe Pantoliano, the film follows Leonard Shelby (Pearce), a man who has anterograde amnesia, resulting in the inability to form new long-term memories. He uses an elaborate system of photos, notes, and tattoos in an attempt to uncover the perpetrator who killed his wife and caused him to sustain the condition.",
+  "franchise": "nolan",
+  "note": ""
+ },
+ {
+  "name": "Interstellar (film)",
+  "year": 2014,
+  "director": "Christopher Nolan",
+  "cast": [],
+  "overview": "Interstellar is a 2014 epic science fiction drama film directed by Christopher Nolan, who co-wrote the screenplay with his brother, Jonathan Nolan. It features an ensemble cast led by Matthew McConaughey, Anne Hathaway, Jessica Chastain, Bill Irwin, Ellen Burstyn, and Michael Caine. Set in a dystopian future where Earth is suffering from catastrophic blight and famine, the film follows a group of astronauts who travel through space in search of a new home for humanity.",
+  "franchise": "nolan",
+  "note": ""
+ },
+ {
+  "name": "Dunkirk (disambiguation)",
+  "year": 2017,
+  "director": "Christopher Nolan",
+  "cast": [],
+  "overview": "Dunkirk is a town and port in northern France.",
+  "franchise": "nolan",
+  "note": ""
+ },
+ {
+  "name": "Tenet",
+  "year": 2020,
+  "director": "Christopher Nolan",
+  "cast": [
+   "John David"
+  ],
+  "overview": "Tenet is a 2020 science fiction action film written and directed by Christopher Nolan, who also produced it with his wife, Emma Thomas. It stars John David Washington, Robert Pattinson, Elizabeth Debicki, Dimple Kapadia, Michael Caine, and Kenneth Branagh. The film follows a CIA officer who is recruited into a secret organization, tasked with tracing the origin of objects that are traveling backward through time and their connection to an attack by the future.",
+  "franchise": "nolan",
+  "note": ""
+ },
+ {
+  "name": "Oppenheimer (film)",
+  "year": 2023,
+  "director": "Christopher Nolan",
+  "cast": [],
+  "overview": "Oppenheimer is a 2023 epic biographical thriller film written, co-produced, and directed by Christopher Nolan. It follows the life of J. Robert Oppenheimer, the American theoretical physicist who led the development of the first nuclear weapons during World War II. Based on the 2005 biography American Prometheus by Kai Bird and Martin J. Sherwin, the film dramatizes Oppenheimer's studies, his direction of the Los Alamos Laboratory and his 1954 security hearing. Cillian Murphy stars as Oppenheimer, alongside an ensemble supporting cast that includes Emily Blunt, Matt Damon, Robert Downey Jr., Florence Pugh, Josh Hartnett, Casey Affleck, Rami Malek, and Kenneth Branagh.",
+  "franchise": "nolan",
+  "note": ""
+ },
+ {
+  "name": "Insomnia (2002 film)",
+  "year": 2002,
+  "director": "Christopher Nolan",
+  "cast": [
+   "Al Pacino"
+  ],
+  "overview": "Insomnia is a 2002 American neo-noir psychological thriller film directed by Christopher Nolan from a screenplay by Hillary Seitz. It is a remake of the 1997 Norwegian film of the same name. The film stars Al Pacino, Robin Williams, and Hilary Swank, with Maura Tierney, Martin Donovan, Nicky Katt, and Paul Dooley in supporting roles. It follows two Los Angeles homicide detectives investigating a murder in Nightmute, Alaska. After the killer witnesses an accidental shooting committed by one of the detectives, they create a plan for both parties to mutually avoid prosecution.",
+  "franchise": "nolan",
+  "note": ""
+ },
+ {
+  "name": "Following",
+  "year": 1998,
+  "director": "Christopher Nolan",
+  "cast": [],
+  "overview": "Following is a 1998 British independent neo-noir film written, directed, photographed and edited by Christopher Nolan in his feature film directorial debut. He co-produced the film with his wife, Emma Thomas, and actor Jeremy Theobald. Using a non-linear narrative, it tells the story of an aspiring writer (Theobald) who follows strangers around the streets of London and is drawn into a criminal underworld when he fails to keep his distance.",
+  "franchise": "nolan",
+  "note": ""
+ },
+ {
+  "name": "The Departed",
+  "year": 2006,
+  "director": "Martin Scorsese",
+  "cast": [],
+  "overview": "The Departed is a 2006 neo-noir crime thriller film, directed by Martin Scorsese and written by William Monahan. A remake of the 2002 Hong Kong film Infernal Affairs, it is also loosely based on real-life people, including the Winter Hill Gang, corrupt FBI agent John Connolly and Irish-American crime boss Whitey Bulger. The film is set primarily in South Boston; Irish Mob boss Frank Costello plants Colin Sullivan as a spy within the Massachusetts State Police; simultaneously, the police assign undercover state trooper Billy Costigan to infiltrate Costello's mob crew. The ensemble cast also features Mark Wahlberg, Martin Sheen, Ray Winstone, Vera Farmiga, Alec Baldwin, Anthony Anderson and James Badge Dale.",
+  "franchise": "crime",
+  "note": "theme"
+ },
+ {
+  "name": "Goodfellas",
+  "year": 1990,
+  "director": "Martin Scorsese",
+  "cast": [],
+  "overview": "Goodfellas is a 1990 American gangster film directed by Martin Scorsese, written by Nicholas Pileggi and Scorsese, and produced by Irwin Winkler. It is a film adaptation of Pileggi's 1985 nonfiction book Wiseguy. Starring Robert De Niro, Ray Liotta, Joe Pesci, Lorraine Bracco and Paul Sorvino, the film narrates the rise and fall of Mafia associate Henry Hill and his friends and family from 1955 to 1980.",
+  "franchise": "crime",
+  "note": "theme"
+ },
+ {
+  "name": "The Godfather",
+  "year": 1972,
+  "director": "Francis Ford Coppola",
+  "cast": [],
+  "overview": "The Godfather is a 1972 American epic gangster film directed by Francis Ford Coppola, who co-wrote the screenplay with Mario Puzo based on Puzo's best-selling 1969 novel. The film features an ensemble cast that includes Marlon Brando, Al Pacino, James Caan, Richard Castellano, Robert Duvall, Sterling Hayden, John Marley, Richard Conte and Diane Keaton. It is the first installment in The Godfather trilogy, which chronicles the Corleone family under patriarch Vito Corleone (Brando) and the transformation of his youngest son, Michael Corleone (Pacino), from reluctant family outsider to ruthless Mafia boss.",
+  "franchise": "crime",
+  "note": "theme"
+ },
+ {
+  "name": "The Godfather Part II",
+  "year": 1974,
+  "director": "Francis Ford Coppola",
+  "cast": [],
+  "overview": "The Godfather Part II is a 1974 American epic gangster film produced and directed by Francis Ford Coppola, loosely based on the 1969 novel The Godfather by Mario Puzo, who co-wrote the screenplay with Coppola. It is both a sequel and a prequel to the 1972 film The Godfather, presenting two parallel dramas: one picks up the 1958 story of Michael Corleone, the new Don of the Corleone family, protecting the family business in the aftermath of an attempt on his life; the other covers the journey of his father, Vito Corleone, from his Sicilian childhood to the founding of his family enterprise in New York City. The ensemble cast also features Robert Duvall, Diane Keaton, Talia Shire, Morgana King, John Cazale, Marianna Hill and Lee Strasberg.",
+  "franchise": "crime",
+  "note": "theme"
+ },
+ {
+  "name": "Seven (1995 film)",
+  "year": 1995,
+  "director": "David Fincher",
+  "cast": [
+   "Brad Pitt"
+  ],
+  "overview": "Seven is a 1995 American crime thriller film directed by David Fincher and written by Andrew Kevin Walker. It stars Brad Pitt and Morgan Freeman, with Gwyneth Paltrow and John C. McGinley in supporting roles. Set in an unnamed, crime-ridden city, the narrative follows disenchanted, nearly retired Detective Lieutenant William Somerset (Freeman) and his newly transferred partner David Mills (Pitt) as they try to stop a serial killer from committing a series of murders based on the seven deadly sins.",
+  "franchise": "crime",
+  "note": "theme"
+ },
+ {
+  "name": "Zodiac (film)",
+  "year": 2007,
+  "director": "David Fincher",
+  "cast": [
+   "Jake Gyllenhaal"
+  ],
+  "overview": "Zodiac is a 2007 American crime thriller film directed by David Fincher and written by James Vanderbilt, based on the non-fiction books by Robert Graysmith: Zodiac (1986) and Zodiac Unmasked (2002). It stars Jake Gyllenhaal, Mark Ruffalo, and Robert Downey Jr., with Anthony Edwards, Brian Cox, Elias Koteas, Donal Logue, John Carroll Lynch, Chloë Sevigny, Philip Baker Hall, and Dermot Mulroney in supporting roles.",
+  "franchise": "crime",
+  "note": "theme"
+ },
+ {
+  "name": "Sicario (2015 film)",
+  "year": 2015,
+  "director": "Denis Villeneuve",
+  "cast": [],
+  "overview": "Sicario is a 2015 American action crime thriller film directed by Denis Villeneuve, written by Taylor Sheridan in his screenwriting debut and starring Emily Blunt, Benicio del Toro, and Josh Brolin. The film follows a principled FBI special agent who is enlisted by a government task force to bring down the leader of a powerful and brutal Mexican drug cartel. Sicario was selected to compete for the Palme d'Or at the 2015 Cannes Film Festival. It began a limited release in the United States on September 18, 2015, followed by a nationwide release on October 2, 2015.",
+  "franchise": "crime",
+  "note": "theme"
+ },
+ {
+  "name": "Mystic River (film)",
+  "year": 2003,
+  "director": "Clint Eastwood",
+  "cast": [
+   "Sean Penn"
+  ],
+  "overview": "Mystic River is a 2003 American neo-noir mystery crime drama film. It was directed and co-produced by Clint Eastwood, and stars Sean Penn, Tim Robbins, Kevin Bacon, Laurence Fishburne, Marcia Gay Harden, and Laura Linney. The screenplay, written by Brian Helgeland, was based on the 2001 novel by Dennis Lehane. It is the first film in which Eastwood was credited as composer of the score.",
+  "franchise": "crime",
+  "note": "theme"
+ },
+ {
+  "name": "The Town (2010 film)",
+  "year": 2010,
+  "director": "Ben Affleck",
+  "cast": [],
+  "overview": "The Town is a 2010 American crime thriller film co-written and directed by Ben Affleck, adapted from Chuck Hogan's 2004 novel Prince of Thieves. The film stars Affleck, Rebecca Hall, Jon Hamm, Jeremy Renner, Blake Lively, Titus Welliver, Pete Postlethwaite, Chris Cooper and Slaine. Loosely inspired by true events, the film features a Boston bank robber who begins to develop romantic feelings for a victim of one of his previous robberies while he and his crew set out for one final score by robbing Fenway Park.",
+  "franchise": "heist",
+  "note": "theme"
+ },
+ {
+  "name": "Collateral (film)",
+  "year": 2004,
+  "director": "Michael Mann",
+  "cast": [],
+  "overview": "Collateral is a 2004 American action thriller film directed and produced by Michael Mann, written by Stuart Beattie, and starring Tom Cruise and Jamie Foxx. The supporting cast includes Jada Pinkett Smith, Mark Ruffalo, Peter Berg, Javier Bardem, and Bruce McGill. The film follows Max Durocher (Foxx), a Los Angeles cab driver, and his customer, Vincent (Cruise). When offered a high fare for driving to several locations, Max agrees but soon finds himself taken hostage by Vincent who turns out to be a sociopathic hitman on a contract killing spree.",
+  "franchise": "crime",
+  "note": "theme"
+ },
+ {
+  "name": "Oldboy (2003 film)",
+  "year": 2003,
+  "director": "Park Chan-wook",
+  "cast": [],
+  "overview": "Oldboy (Korean: 올드보이) is a 2003 South Korean action thriller film directed and co-written by Park Chan-wook. A loose adaptation of the Japanese manga Old Boy by Garon Tsuchiya and Nobuaki Minegishi, the film follows Oh Dae-su, who is imprisoned for 15 years without knowing the identity of his captor or his captor's motives. When he is released, Dae-su finds himself trapped in a web of conspiracy and violence as he seeks revenge against his captor and falls in love with a young sushi chef, Mi-do.",
+  "franchise": "crime",
+  "note": "theme"
+ },
+ {
+  "name": "L.A. Confidential (film)",
+  "year": 1997,
+  "director": "Curtis Hanson",
+  "cast": [],
+  "overview": "L.A. Confidential is a 1997 American neo-noir crime thriller film directed, produced, and co-written by Curtis Hanson. The screenplay, by Hanson and Brian Helgeland, is based on James Ellroy's 1990 novel, the third book in his L.A. Quartet series. The film tells the story of a group of LAPD officers in 1953, and the intersection of police corruption and Hollywood celebrity. The title refers to the 1950s scandal magazine Confidential, portrayed in the film as Hush-Hush.",
+  "franchise": "crime",
+  "note": "theme"
+ },
+ {
+  "name": "American Psycho (film)",
+  "year": 2000,
+  "director": "Mary Harron",
+  "cast": [
+   "Christian Bale"
+  ],
+  "overview": "American Psycho is a 2000 horror comedy film directed by Mary Harron who co-wrote the screenplay with Guinevere Turner. Based on the 1991 novel by Bret Easton Ellis, it stars Christian Bale as Patrick Bateman, a wealthy New York City investment banker who leads a double life as a serial killer. Willem Dafoe, Jared Leto, Josh Lucas, Chloë Sevigny, Samantha Mathis, Cara Seymour, Justin Theroux, Turner, and Reese Witherspoon appear in supporting roles. The film blends psychological horror and black comedy to satirize 1980s yuppie culture and consumerism, exemplified by Bateman.",
+  "franchise": "crime",
+  "note": ""
+ },
+ {
+  "name": "V for Vendetta (film)",
+  "year": 2005,
+  "director": "James McTeigue",
+  "cast": [],
+  "overview": "V for Vendetta is a 2005 dystopian thriller film directed by James McTeigue from a screenplay by the Wachowskis. Serving as McTeigue's directorial debut, it is based on the 1988–89 graphic novel V for Vendetta created by Alan Moore and David Lloyd. The cast includes Natalie Portman, Hugo Weaving, Stephen Rea and John Hurt. The film, which is set in a future where a fascist totalitarian regime has subjugated the United Kingdom, centres on V (Weaving), a masked vigilante who attempts to ignite a revolution, and Evey Hammond (Portman), a young woman caught up in V's plot.",
+  "franchise": "superhero",
+  "note": "theme"
+ },
+ {
+  "name": "Unbreakable (film)",
+  "year": 2000,
+  "director": "M. Night Shyamalan",
+  "cast": [],
+  "overview": "Unbreakable is a 2000 American superhero thriller film written, produced, and directed by M. Night Shyamalan, and starring Bruce Willis, Samuel L. Jackson, and Robin Wright. In Unbreakable, David Dunn (Willis) survives a train crash with no injuries, leading to the realization that he harbors superhuman abilities. As he begins to grapple with this discovery, he comes to the attention of disabled comic book store owner Elijah Price (Jackson), who manipulates David to understand him.",
+  "franchise": "superhero",
+  "note": "theme"
+ },
+ {
+  "name": "Logan (film)",
+  "year": 2017,
+  "director": "James Mangold",
+  "cast": [
+   "Patrick Stewart"
+  ],
+  "overview": "Logan is a 2017 American superhero film starring Hugh Jackman as the titular character. Based on the Marvel Comics character Wolverine, the film was directed by James Mangold, who co-wrote the screenplay with Michael Green and Scott Frank from a story by Mangold. It is the tenth installment in the X-Men film series, and the third Wolverine solo film following X-Men Origins: Wolverine (2009) and The Wolverine (2013). The film takes inspiration from the \"Old Man Logan\" comics storyline by Mark Millar and Steve McNiven and follows an aged Wolverine and an extremely ill Charles Xavier who must defend a young mutant named Laura from the Reavers led by Donald Pierce and Zander Rice. The film also stars Patrick Stewart, Richard E. Grant, Boyd Holbrook, and Stephen Merchant, with Dafne Keen making her film debut as Laura.",
+  "franchise": "superhero",
+  "note": "theme"
+ },
+ {
+  "name": "Spider-Man 2",
+  "year": 2004,
+  "director": "Sam Raimi",
+  "cast": [],
+  "overview": "Spider-Man 2 is a 2004 American superhero film directed by Sam Raimi and written by Alvin Sargent from a story conceived by Michael Chabon and the writing team of Alfred Gough and Miles Millar. Based on the Marvel Comics superhero Spider-Man, it is the second film in Raimi's Spider-Man trilogy (2002–2007), and the sequel to Spider-Man (2002). Tobey Maguire stars as Peter Parker / Spider-Man, alongside Kirsten Dunst, James Franco, Alfred Molina, Rosemary Harris, and Donna Murphy. The plot follows Peter Parker as he tries to manage his job, academics, personal life, and life as Spider-Man while also attempting to stop the scientist Dr. Otto Octavius from re-creating a dangerous experiment.",
+  "franchise": "superhero",
+  "note": ""
+ },
+ {
+  "name": "The Amazing Spider-Man (film)",
+  "year": 2012,
+  "director": "Marc Webb",
+  "cast": [
+   "Andrew Garfield"
+  ],
+  "overview": "The Amazing Spider-Man is a 2012 American superhero film based on the Marvel Comics character Spider-Man. Directed by Marc Webb and written by James Vanderbilt, Alvin Sargent, and Steve Kloves from a story by Vanderbilt, it is a reboot of the Spider-Man film series. It stars Andrew Garfield, Emma Stone, Rhys Ifans, Denis Leary, Campbell Scott, Irrfan Khan, Martin Sheen, and Sally Field. The plot of the film follows the teenager Peter Parker (Garfield) who gains spider-like abilities and fights crime as Spider-Man, while also attempting to live an ordinary life.",
+  "franchise": "superhero",
+  "note": ""
+ },
+ {
+  "name": "Avengers: Endgame",
+  "year": 2019,
+  "director": "Anthony and Joe Russo",
+  "cast": [],
+  "overview": "Avengers: Endgame is a 2019 American superhero film based on the Marvel Comics superhero team the Avengers. Produced by Marvel Studios and distributed by Walt Disney Studios Motion Pictures, it is the direct sequel to Avengers: Infinity War (2018) and the 22nd film in the Marvel Cinematic Universe (MCU). Directed by Anthony and Joe Russo and written by Christopher Markus and Stephen McFeely, the film features an ensemble cast that includes Robert Downey Jr., Chris Evans, Mark Ruffalo, Chris Hemsworth, Scarlett Johansson, Jeremy Renner, Don Cheadle, Paul Rudd, Brie Larson, Karen Gillan, Danai Gurira, Benedict Wong, Jon Favreau, Bradley Cooper, Gwyneth Paltrow, and Josh Brolin. In the film, the surviving members of the Avengers and their allies attempt to reverse Thanos's actions in Infinity War, which erased half of all life in the universe.",
+  "franchise": "superhero",
+  "note": "popular"
+ },
+ {
+  "name": "Iron Man (2008 film)",
+  "year": 2008,
+  "director": "Jon Favreau",
+  "cast": [
+   "Robert Downey"
+  ],
+  "overview": "Iron Man is a 2008 American superhero film based on the Marvel Comics character Iron Man. Produced by Marvel Studios and distributed by Paramount Pictures, it is the first film in the Marvel Cinematic Universe (MCU). Directed by Jon Favreau and written by the teams of Mark Fergus & Hawk Ostby and Art Marcum & Matt Holloway, the film stars Robert Downey Jr. as Tony Stark / Iron Man alongside Terrence Howard, Jeff Bridges, Gwyneth Paltrow, Leslie Bibb, and Shaun Toub. In the film, world-famous industrialist and master engineer Stark builds a mechanized suit of armor to escape from captivity by a terrorist group, and then uses the suit to become the superhero Iron Man.",
+  "franchise": "superhero",
+  "note": ""
+ },
+ {
+  "name": "Wonder Woman (2017 film)",
+  "year": 2017,
+  "director": "Patty Jenkins",
+  "cast": [],
+  "overview": "Wonder Woman is a 2017 superhero film based on the DC Comics character Wonder Woman. Directed by Patty Jenkins from a screenplay by Allan Heinberg, and based on a story by Heinberg, Zack Snyder, and Jason Fuchs, it is the fourth film in the DC Extended Universe (DCEU). Gal Gadot stars as Diana Prince / Wonder Woman alongside Chris Pine, Robin Wright, Danny Huston, David Thewlis, Connie Nielsen, and Elena Anaya. The film follows Diana, an Amazon princess, as she leaves her home island of Themyscira after the American spy Steve Trevor informs her about World War I. Believing it to be orchestrated by Ares, the god of war, she sets out to stop the conflict.",
+  "franchise": "superhero",
+  "note": ""
+ },
+ {
+  "name": "The Incredibles",
+  "year": 2004,
+  "director": "Brad Bird",
+  "cast": [],
+  "overview": "The Incredibles is a 2004 American animated superhero film written and directed by Brad Bird. Produced by Pixar Animation Studios for Walt Disney Pictures, it stars the voices of Craig T. Nelson, Holly Hunter, Sarah Vowell, Spencer Fox, Jason Lee, Samuel L. Jackson, and Elizabeth Peña. Set in a retro-futuristic version of the 1960s, the film follows Bob (Nelson) and Helen Parr (Hunter), a superhero couple respectively known as Mr. Incredible and Elastigirl, who hide their powers in accordance with a government mandate that outlawed superheroes, and attempt to live a quiet suburban life with their three children. However, Bob's desire to help people draws the entire family into a confrontation with a vengeful fan-turned-foe.",
+  "franchise": "animation",
+  "note": ""
+ },
+ {
+  "name": "Spider-Man: Into the Spider-Verse",
+  "year": 2018,
+  "director": "Bob Persichetti",
+  "cast": [],
+  "overview": "Spider-Man: Into the Spider-Verse is a 2018 American animated superhero film based on the Marvel Comics character Spider-Man. Directed by Bob Persichetti, Peter Ramsey and Rodney Rothman from a screenplay by Phil Lord and Rothman, it is the first animated film in the Spider-Man franchise. Shameik Moore stars as the voice of Miles Morales, with Jake Johnson, Hailee Steinfeld, Mahershala Ali, Brian Tyree Henry, Lily Tomlin, Luna Lauren Vélez, Zoë Kravitz, John Mulaney, Kimiko Glenn, Nicolas Cage, Kathryn Hahn, and Liev Schreiber in supporting voice roles. The film's story follows Miles as he becomes the new Spider-Man and teams up with other Spider-People from various parallel universes to save his universe from the Kingpin. It was produced by Columbia Pictures and Sony Pictures Animation in association with Marvel Entertainment.",
+  "franchise": "animation",
+  "note": ""
+ },
+ {
+  "name": "Kill Bill: Volume 1",
+  "year": 2003,
+  "director": "Quentin Tarantino",
+  "cast": [
+   "Uma Thurman"
+  ],
+  "overview": "Kill Bill: Volume 1 is a 2003 American martial arts film written and directed by Quentin Tarantino. It stars Uma Thurman as the Bride, a mercenary who swears revenge on a group of assassins and their leader, Bill, after they try to kill her and her unborn child. Her mission takes her to Tokyo, where she battles the yakuza.",
+  "franchise": "tarantino",
+  "note": "adjacent"
+ },
+ {
+  "name": "Pulp Fiction",
+  "year": 1994,
+  "director": "Quentin Tarantino",
+  "cast": [
+   "John Travolta"
+  ],
+  "overview": "Pulp Fiction is a 1994 American crime film written and directed by Quentin Tarantino from a story he conceived with Roger Avary. It tells four intertwining tales of crime and violence in Los Angeles. The film stars John Travolta, Samuel L. Jackson, Bruce Willis, Tim Roth, Ving Rhames, and Uma Thurman. The title refers to the pulp magazines and hardboiled crime novels popular during the mid-twentieth century, known for their graphic violence and punchy dialogue.",
+  "franchise": "tarantino",
+  "note": "adjacent"
+ },
+ {
+  "name": "Reservoir Dogs",
+  "year": 1992,
+  "director": "Quentin Tarantino",
+  "cast": [
+   "Harvey Keitel"
+  ],
+  "overview": "Reservoir Dogs is a 1992 American heist film written and directed by Quentin Tarantino in his feature-length directorial debut. It stars Harvey Keitel, Tim Roth, Chris Penn, Steve Buscemi, Lawrence Tierney, Michael Madsen, Tarantino, and Edward Bunker as diamond thieves whose heist of a jewelry store goes terribly wrong. Kirk Baltz, Randy Brooks, and Steven Wright also play supporting roles. The film incorporates many motifs that have become Tarantino's hallmarks: violent crime, pop culture references, profanity, and nonlinear storytelling.",
+  "franchise": "tarantino",
+  "note": ""
+ },
+ {
+  "name": "Django Unchained",
+  "year": 2012,
+  "director": "Quentin Tarantino",
+  "cast": [
+   "Jamie Foxx"
+  ],
+  "overview": "Django Unchained is a 2012 American revisionist Western film written and directed by Quentin Tarantino. Produced by Tarantino's A Band Apart and Columbia Pictures, it stars Jamie Foxx, Christoph Waltz, Leonardo DiCaprio, Kerry Washington, and Samuel L. Jackson with Walton Goggins, Dennis Christopher, James Remar, Michael Parks, and Don Johnson in supporting roles. The film, set in the Antebellum South and Old West, follows the story of an enslaved man who trains under a German bounty hunter with the ultimate goal of reuniting with his wife.",
+  "franchise": "tarantino",
+  "note": ""
+ },
+ {
+  "name": "Once Upon a Time in Hollywood",
+  "year": 2019,
+  "director": "Quentin Tarantino",
+  "cast": [],
+  "overview": "Once Upon a Time in Hollywood is a 2019 comedy-drama film written and directed by Quentin Tarantino, who produced it with David Heyman and Shannon McIntosh. Produced by Columbia Pictures in association with Bona Film Group, Heyday Films, and Visiona Romantica, and distributed by Sony Pictures Releasing, it is a co-production between the United States, United Kingdom, and China. It features an ensemble cast led by Leonardo DiCaprio as Rick Dalton, an aging Western hero; Brad Pitt as his stunt double Cliff Booth; and Margot Robbie as actress Sharon Tate, wife of Roman Polanski. Set in 1969 Los Angeles, the period film follows a fading actor (DiCaprio) and his stunt double (Pitt) as they navigate the rapidly changing film industry. The threat of the Tate murders is looming.",
+  "franchise": "tarantino",
+  "note": ""
+ },
+ {
+  "name": "Inglourious Basterds",
+  "year": 2009,
+  "director": "Quentin Tarantino",
+  "cast": [],
+  "overview": "Inglourious Basterds is a 2009 black comedy war film written and directed by Quentin Tarantino. It stars an ensemble cast including Brad Pitt, Christoph Waltz, Michael Fassbender, Eli Roth, Diane Kruger, Daniel Brühl, Til Schweiger, and Mélanie Laurent. The film tells an alternate history story of two converging plots to assassinate Nazi Germany's leadership at a Paris cinema—one through a British operation largely carried out by a team of Jewish American soldiers led by First Lieutenant Aldo Raine (Pitt), and another by French Jewish cinema proprietor Shosanna Dreyfus (Laurent) who seeks to avenge her murdered family. Both are pitted against Hans Landa (Waltz), an SS colonel with a fearsome reputation.",
+  "franchise": "tarantino",
+  "note": ""
+ },
+ {
+  "name": "Arrival (film)",
+  "year": 2016,
+  "director": "Denis Villeneuve",
+  "cast": [
+   "Amy Adams"
+  ],
+  "overview": "Arrival is a 2016 American science fiction drama film directed by Denis Villeneuve and written by Eric Heisserer, based on the 1998 novella \"Story of Your Life\" by Ted Chiang. The film stars Amy Adams as Louise Banks, a linguist engaged by the United States Army to discover how to communicate with extraterrestrials who have arrived on Earth, before tensions lead to war. Jeremy Renner, Forest Whitaker, and Michael Stuhlbarg appear in supporting roles.",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "Dune (2021 film)",
+  "year": 2021,
+  "director": "Denis Villeneuve",
+  "cast": [],
+  "overview": "Dune is a 2021 American epic space opera film co-produced and directed by Denis Villeneuve, who co-wrote the screenplay with Jon Spaihts and Eric Roth. It is the first of a two-part adaptation of the 1965 novel by Frank Herbert and the first installment in Villeneuve's Dune film trilogy. The cast includes Timothée Chalamet, Rebecca Ferguson, Oscar Isaac, Josh Brolin, Stellan Skarsgård, Dave Bautista, Stephen McKinley Henderson, Zendaya, Chang Chen, Sharon Duncan-Brewster, Charlotte Rampling, Jason Momoa, and Javier Bardem. Set in the distant future, the film follows Paul Atreides (Chalamet) as his family, the aristocratic House Atreides, is thrust into a war for the inhospitable desert planet Arrakis.",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "Dune: Part Two",
+  "year": 2024,
+  "director": "Denis Villeneuve",
+  "cast": [],
+  "overview": "Dune: Part Two is a 2024 American epic space opera film directed by Denis Villeneuve, from a screenplay he wrote with Jon Spaihts. A sequel to Dune (2021), it is the second film in a two-part adaptation of Frank Herbert's 1965 science fiction novel Dune, and is the second of a trilogy of films developed by Legendary Pictures. Timothée Chalamet leads an ensemble cast as Paul Atreides, an exiled monarch who allies with the Fremen to overthrow House Harkonnen as part of a quest to become a messianic figure. Villeneuve produced Dune: Part Two with his wife and business partner Tanya Lapointe, Mary Parent and Cale Boyter of Legendary Pictures, and Patrick McCormick. Funding came from a distribution agreement between Legendary and Warner Bros. Pictures, as well as tax subsidies from Hungarian, Jordanian, and Abu Dhabi governments.",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "Blade Runner",
+  "year": 1982,
+  "director": "Ridley Scott",
+  "cast": [],
+  "overview": "Blade Runner is a 1982 science fiction film directed by Ridley Scott from a screenplay by Hampton Fancher and David Peoples. Starring Harrison Ford, Rutger Hauer, Sean Young, and Edward James Olmos, it is an adaptation of the 1968 novel Do Androids Dream of Electric Sheep? by Philip K. Dick. The film is set in a dystopian future Los Angeles of 2019, in which synthetic humans known as replicants are bio-engineered by the powerful Tyrell Corporation to work on space colonies. When a fugitive group of advanced replicants led by Roy Batty (Hauer) escapes back to Earth, former cop Rick Deckard (Ford) is recalled to hunt them down.",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "The Matrix",
+  "year": 1999,
+  "director": "The Wachowskis",
+  "cast": [
+   "Keanu Reeves"
+  ],
+  "overview": "The Matrix is a 1999 science fiction–action film written and directed by the Wachowskis. The first installment in the Matrix film series, it stars Keanu Reeves, Laurence Fishburne, Carrie-Anne Moss, Hugo Weaving, and Joe Pantoliano. The film follows a disillusioned computer hacker Neo (Reeves) who discovers that the life he knows is an elaborate deception created by intelligent machines. He is recruited by underground insurgents Morpheus (Fishburne) and Trinity (Moss), to join the rebellion against the machines.",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "Ex Machina (film)",
+  "year": 2014,
+  "director": "Alex Garland",
+  "cast": [
+   "Domhnall Gleeson"
+  ],
+  "overview": "Ex Machina is a 2014 science fiction film, written and directed by Alex Garland in his directorial debut. It stars Domhnall Gleeson, Alicia Vikander, and Oscar Isaac. It follows a programmer who is invited by his CEO to administer the Turing test to an intelligent female humanoid robot.",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "Moon (2009 film)",
+  "year": 2009,
+  "director": "Duncan Jones",
+  "cast": [
+   "Sam Rockwell"
+  ],
+  "overview": "Moon is a 2009 science fiction film directed by Duncan Jones, written by Nathan Parker from a story by Jones. It stars Sam Rockwell as Sam Bell, a man who experiences a personal crisis as he nears the end of a three-year solitary stint mining helium-3 on the far side of the Moon. Dominique McElligott, Kaya Scodelario, Benedict Wong, Matt Berry, Malcolm Stewart, and Kevin Spacey appear in supporting roles.",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "Total Recall (1990 film)",
+  "year": 1990,
+  "director": "Paul Verhoeven",
+  "cast": [
+   "Arnold Schwarzenegger"
+  ],
+  "overview": "Total Recall is a 1990 American science fiction action film directed by Paul Verhoeven, with a screenplay by Ronald Shusett, Dan O'Bannon, and Gary Goldman. The film stars Arnold Schwarzenegger, Rachel Ticotin, Sharon Stone, Ronny Cox, and Michael Ironside. Based on the 1966 short story \"We Can Remember It for You Wholesale\" by Philip K. Dick, Total Recall tells the story of Douglas Quaid (Schwarzenegger), a construction worker who receives an implanted memory of a fantastical adventure on Mars. He subsequently finds his adventure occurring in reality as agents of a shadow organization try to prevent him from recovering memories of his past as a Martian secret agent aiming to stop the tyrannical regime of the planet's dictator Vilos Cohaagen (Cox).",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "Casino Royale (2006 film)",
+  "year": 2006,
+  "director": "Martin Campbell",
+  "cast": [
+   "Daniel Craig"
+  ],
+  "overview": "Casino Royale is a 2006 spy thriller film, the twenty-first in the James Bond series by Eon Productions, the third screen adaptation of Ian Fleming's 1953 novel of the same name, and the first to star Daniel Craig as the fictional MI6 agent James Bond.",
+  "franchise": "action",
+  "note": ""
+ },
+ {
+  "name": "Mission: Impossible (film)",
+  "year": 1996,
+  "director": "Brian De Palma",
+  "cast": [
+   "Jon Voight"
+  ],
+  "overview": "Mission: Impossible is a 1996 American spy thriller film directed by Brian De Palma, and produced by and starring Tom Cruise from a screenplay by David Koepp and Robert Towne and story by Koepp and Steven Zaillian. Based on the 1966 television series of the same name and its 1988 sequel series, it is the first installment in the Mission: Impossible film series. It also stars Jon Voight, Henry Czerny, Emmanuelle Béart, Jean Reno, Ving Rhames, Kristin Scott Thomas and Vanessa Redgrave. In the film, Ethan Hunt (Cruise) seeks to uncover who framed him for the murders of most of his Impossible Missions Force (IMF) team.",
+  "franchise": "action",
+  "note": ""
+ },
+ {
+  "name": "The Bourne Identity (2002 film)",
+  "year": 2002,
+  "director": "Doug Liman",
+  "cast": [
+   "Matt Damon"
+  ],
+  "overview": "The Bourne Identity is a 2002 American action-thriller film directed by Doug Liman and written by Tony Gilroy and William Blake Herron. Based on Robert Ludlum's 1980 novel, it is the first installment in the Bourne franchise, and stars Matt Damon, Franka Potente, Chris Cooper, Clive Owen, Brian Cox, and Adewale Akinnuoye-Agbaje. In the film, Jason Bourne (Damon) has psychogenic amnesia and is forced to fight to unlock his identity and his mysterious connection to the CIA.",
+  "franchise": "action",
+  "note": ""
+ },
+ {
+  "name": "Speed (1994 film)",
+  "year": 1994,
+  "director": "Jan de Bont",
+  "cast": [],
+  "overview": "Speed is a 1994 American thriller film directed by Jan de Bont in his feature directorial debut, and written by Graham Yost. Keanu Reeves, Dennis Hopper, and Sandra Bullock star in the film, with Joe Morton and Jeff Daniels in supporting roles. The plot centers on a city bus rigged by Howard Payne (Hopper), an ex-cop turned vengeful extortionist, to explode if its speed drops below 50 miles per hour (80 km/h). Reeves plays LAPD officer Jack Traven, who is tasked with preventing the disaster, with Bullock portraying a passenger who becomes unexpectedly involved in the mission.",
+  "franchise": "action",
+  "note": ""
+ },
+ {
+  "name": "Die Hard",
+  "year": 1988,
+  "director": "John McTiernan",
+  "cast": [
+   "Bruce Willis"
+  ],
+  "overview": "Die Hard is a 1988 American action film directed by John McTiernan and written by Jeb Stuart and Steven E. de Souza, based on the 1979 novel Nothing Lasts Forever by Roderick Thorp. It stars Bruce Willis, Alan Rickman, Alexander Godunov, and Bonnie Bedelia, with Reginald VelJohnson, William Atherton, Paul Gleason, and Hart Bochner in supporting roles. Die Hard follows a New York City police detective, John McClane (Willis), who becomes entangled in a terrorist takeover of a Los Angeles skyscraper while visiting his estranged wife during a Christmas Eve party.",
+  "franchise": "action",
+  "note": ""
+ },
+ {
+  "name": "Predator (film)",
+  "year": 1987,
+  "director": "John McTiernan",
+  "cast": [],
+  "overview": "Predator is a 1987 American science fiction action horror film directed by John McTiernan and written by brothers Jim and John Thomas. Arnold Schwarzenegger stars as Dutch, the leader of a paramilitary rescue team on a mission to save hostages in a Central American rainforest, who encounters a deadly Predator, a skilled and technologically advanced extraterrestrial that stalks and hunts down his team. The film also features Elpidia Carrillo, Carl Weathers, Richard Chaves, Sonny Landham, Bill Duke, Jesse Ventura and Shane Black.",
+  "franchise": "action",
+  "note": ""
+ },
+ {
+  "name": "Morbius (film)",
+  "year": 2022,
+  "director": "Daniel Espinosa",
+  "cast": [],
+  "overview": "Morbius is a 2022 American superhero film based on the Marvel Comics character. Produced by Columbia Pictures in association with Marvel Entertainment, Arad Productions, and Matt Tolmach Productions, and distributed by Sony Pictures Releasing, it is the third film in Sony's Spider-Man Universe (SSU). Jared Leto stars as Dr. Michael Morbius, alongside Matt Smith, Adria Arjona, Jared Harris, Al Madrigal, and Tyrese Gibson. The film was directed by Daniel Espinosa and written by Matt Sazama and Burk Sharpless. In the film, Michael Morbius and his surrogate brother Milo (Smith) become living vampires after curing themselves of a rare blood disease.",
+  "franchise": "superhero",
+  "note": "passing-off"
+ },
+ {
+  "name": "Madame Web (film)",
+  "year": 2024,
+  "director": "S. J. Clarkson",
+  "cast": [],
+  "overview": "Madame Web is a 2024 American superhero film based on the Marvel Comics character. It is the fourth film in Sony's Spider-Man Universe (SSU). Dakota Johnson stars as the title character, alongside Sydney Sweeney, Isabela Merced, Celeste O'Connor, Tahar Rahim, Mike Epps, Emma Roberts, and Adam Scott. The film was directed by S. J. Clarkson from a screenplay she wrote with Claire Parker alongside the writing team of Matt Sazama and Burk Sharpless. The film depicts the origin story of Cassie Webb (Johnson), who confronts her past while trying to save three young women from Ezekiel Sims (Rahim), who wants to kill them before they become Spider-Women in the future and kill him. Lorenzo di Bonaventura produced the film for Columbia Pictures.",
+  "franchise": "superhero",
+  "note": "passing-off"
+ },
+ {
+  "name": "Venom: Let There Be Carnage",
+  "year": 2021,
+  "director": "Andy Serkis",
+  "cast": [],
+  "overview": "Venom: Let There Be Carnage is a 2021 American superhero film based on the Marvel Comics character Venom. The sequel to Venom (2018) and the second film in Sony's Spider-Man Universe (SSU), it was directed by Andy Serkis from a screenplay by Kelly Marcel. Tom Hardy stars as Eddie Brock and Venom alongside Michelle Williams, Naomie Harris, Reid Scott, Stephen Graham, and Woody Harrelson. In the film, Eddie and the alien symbiote Venom must face serial killer Cletus Kasady (Harrelson) after he becomes the host of an offshoot of Venom named Carnage.",
+  "franchise": "superhero",
+  "note": "passing-off"
+ },
+ {
+  "name": "The Shawshank Redemption",
+  "year": 1994,
+  "director": "Frank Darabont",
+  "cast": [],
+  "overview": "The Shawshank Redemption is a 1994 American drama film written and directed by Frank Darabont, based on the 1982 Stephen King novella Rita Hayworth and Shawshank Redemption. The film tells the story of banker Andy Dufresne, who is sentenced to life in Shawshank State Penitentiary for the murders of his wife and her lover, despite his claims of innocence. Over the following two decades, he befriends a fellow prisoner, contraband smuggler Ellis \"Red\" Redding, and becomes instrumental in a money laundering operation led by the prison warden Samuel Norton. William Sadler, Clancy Brown, Gil Bellows, and James Whitmore appear in supporting roles.",
+  "franchise": "drama",
+  "note": ""
+ },
+ {
+  "name": "Forrest Gump",
+  "year": 1994,
+  "director": "Robert Zemeckis",
+  "cast": [
+   "Tom Hanks"
+  ],
+  "overview": "Forrest Gump is a 1994 American comedy-drama film directed by Robert Zemeckis. An adaptation of the 1986 novel of the same name by Winston Groom, the film's screenplay was written by Eric Roth. It stars Tom Hanks in the title role, alongside Robin Wright, Gary Sinise, Mykelti Williamson, and Sally Field in lead roles. The film follows the life of an Alabama man named Forrest Gump (Hanks) and his experiences in the 20th-century United States.",
+  "franchise": "drama",
+  "note": ""
+ },
+ {
+  "name": "Fight Club",
+  "year": 1999,
+  "director": "David Fincher",
+  "cast": [],
+  "overview": "Fight Club is a 1999 American film directed by David Fincher starring Brad Pitt, Edward Norton, and Helena Bonham Carter. It is based on the 1996 novel Fight Club by Chuck Palahniuk. Norton plays the unnamed narrator, who is discontented with his white-collar job. He forms a \"fight club\" with a soap salesman, Tyler Durden (Pitt) and becomes embroiled with an impoverished but beguiling woman, Marla Singer.",
+  "franchise": "drama",
+  "note": ""
+ },
+ {
+  "name": "The Silence of the Lambs (film)",
+  "year": 1991,
+  "director": "Jonathan Demme",
+  "cast": [
+   "Jodie Foster"
+  ],
+  "overview": "The Silence of the Lambs is a 1991 American psychological horror thriller film directed by Jonathan Demme and written by Ted Tally, adapted from Thomas Harris's 1988 novel. It stars Jodie Foster as Clarice Starling, a young FBI trainee who is hunting a serial killer known as \"Buffalo Bill\", who skins his female victims. To catch him, she seeks the advice of the imprisoned Hannibal Lecter, a brilliant psychiatrist and cannibalistic serial murderer. The film also features performances by Scott Glenn, Anthony Heald, and Kasi Lemmons.",
+  "franchise": "crime",
+  "note": ""
+ },
+ {
+  "name": "Schindler's List",
+  "year": 1993,
+  "director": "Steven Spielberg",
+  "cast": [
+   "Liam Neeson"
+  ],
+  "overview": "Schindler's List is a 1993 American historical drama film directed and co-produced by Steven Spielberg and written by Steven Zaillian. It is based on the historical novel Schindler's Ark (1982) by Thomas Keneally. The film follows Oskar Schindler, a German industrialist who saved more than a thousand mostly Polish–Jewish refugees from the Holocaust by employing them in his factories during World War II. It stars Liam Neeson as Schindler, Ralph Fiennes as SS officer Amon Göth, and Ben Kingsley as Schindler's Jewish accountant Itzhak Stern.",
+  "franchise": "drama",
+  "note": ""
+ },
+ {
+  "name": "Saving Private Ryan",
+  "year": 1998,
+  "director": "Steven Spielberg",
+  "cast": [
+   "Edward Burns"
+  ],
+  "overview": "Saving Private Ryan is a 1998 American war film directed by Steven Spielberg and written by Robert Rodat. Set in 1944 in Normandy, France, during World War II, it follows a group of soldiers, led by Captain John Miller, on a mission to locate Private James Francis Ryan and bring him home safely after his three brothers have been killed in action. The film also stars Edward Burns and Tom Sizemore.",
+  "franchise": "war",
+  "note": ""
+ },
+ {
+  "name": "Gladiator (2000 film)",
+  "year": 2000,
+  "director": "Ridley Scott",
+  "cast": [
+   "Russell Crowe"
+  ],
+  "overview": "Gladiator is a 2000 epic action adventure drama film directed by Ridley Scott and written by David Franzoni, John Logan, and William Nicholson from a story by Franzoni. It stars Russell Crowe, Joaquin Phoenix, Connie Nielsen, Oliver Reed, Derek Jacobi, Djimon Hounsou, and Richard Harris. Crowe portrays Maximus Decimus Meridius, a Roman general who is betrayed when Commodus, the ambitious son of Emperor Marcus Aurelius, murders his father and seizes the throne. Reduced to a slave, Maximus becomes a gladiator and rises through the ranks of the arena, determined to avenge the murders of his family and the emperor.",
+  "franchise": "historical",
+  "note": ""
+ },
+ {
+  "name": "Titanic (1997 film)",
+  "year": 1997,
+  "director": "James Cameron",
+  "cast": [],
+  "overview": "Titanic is a 1997 American historical romance film written and directed by James Cameron. Incorporating both historical and fictional aspects, it is based on accounts of the sinking of RMS Titanic in 1912. Leonardo DiCaprio and Kate Winslet star as members of different social classes who fall in love during the ship's ill-fated maiden voyage. The ensemble cast includes Billy Zane, Kathy Bates, Frances Fisher, Bernard Hill, Jonathan Hyde, Danny Nucci, David Warner and Bill Paxton.",
+  "franchise": "drama",
+  "note": ""
+ },
+ {
+  "name": "Avatar (2009 film)",
+  "year": 2009,
+  "director": "James Cameron",
+  "cast": [],
+  "overview": "Avatar is a 2009 epic science fiction film written and directed by James Cameron. It features an ensemble cast including Sam Worthington, Zoe Saldaña, Stephen Lang, Michelle Rodriguez, and Sigourney Weaver. It is the first installment in the Avatar film series. It is set in the mid-22nd century, when humans are colonizing Pandora, a lush habitable moon, in order to mine the valuable mineral unobtanium. The expansion of the mining colony threatens the existence of a local tribe of Na'vi, a humanoid species indigenous to Pandora. The title of the film refers to an \"avatar\", which is a genetically engineered Na'vi body remotely operated from the brain of a human, and which is used to interact with the Na'vi.",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "Avatar: The Way of Water",
+  "year": 2022,
+  "director": "James Cameron",
+  "cast": [],
+  "overview": "Avatar: The Way of Water is a 2022 American epic science fiction film directed by James Cameron and written by Cameron, Rick Jaffa and Amanda Silver. It is the second installment in the Avatar film series and the sequel to Avatar (2009). Sam Worthington, Zoe Saldaña and Stephen Lang reprise their roles from the first film, with Sigourney Weaver returning in an additional role and Kate Winslet joining the cast. The plot follows Jake Sully, a human-Na'vi hybrid, and his family on the habitable moon Pandora. Hunted by RDA forces, they flee to an oceanic region to seek refuge with the Metkayina clan.",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "Aliens (film)",
+  "year": 1986,
+  "director": "James Cameron",
+  "cast": [
+   "Sigourney Weaver"
+  ],
+  "overview": "Aliens is a 1986 science fiction action film written and directed by James Cameron. It is the sequel to the 1979 science fiction horror film Alien, and the second film in the Alien franchise. Set in the far future, it stars Sigourney Weaver as Ellen Ripley, the sole survivor of an alien attack on her ship. When communications are lost with a human colony on the moon where her crew first encountered the alien creatures, Ripley agrees to return to the site with a unit of Colonial Marines to investigate. Michael Biehn, Paul Reiser, Lance Henriksen, and Carrie Henn are featured in supporting roles.",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "The Terminator",
+  "year": 1984,
+  "director": "James Cameron",
+  "cast": [
+   "Arnold Schwarzenegger"
+  ],
+  "overview": "The Terminator is a 1984 American science fiction action film directed by James Cameron, who co-wrote it with producer Gale Anne Hurd. It stars Arnold Schwarzenegger as the titular character, a cyborg assassin sent back in time from the post-apocalyptic 2029 to 1984 to assassinate Sarah Connor, whose future son will one day save the world from Skynet, a hostile artificial intelligence. Soldier Kyle Reese travels back in time to protect Sarah.",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "Alien (film)",
+  "year": 1979,
+  "director": "Ridley Scott",
+  "cast": [
+   "Tom Skerritt"
+  ],
+  "overview": "Alien is a 1979 science fiction horror film directed by Ridley Scott and written by Dan O'Bannon, based on a story by O'Bannon and Ronald Shusett. It follows a commercial starship crew who investigate a derelict space vessel and are hunted by a deadly extraterrestrial creature. The film stars Tom Skerritt, Sigourney Weaver, Veronica Cartwright, Harry Dean Stanton, John Hurt, Ian Holm, and Yaphet Kotto. It was produced by Gordon Carroll, David Giler, and Walter Hill through their company Brandywine Productions and was distributed by 20th Century-Fox. Giler and Hill revised and made additions to the script; Shusett was the executive producer. The alien creatures and environments were designed by the Swiss artist H. R. Giger, while the concept artists Ron Cobb and Chris Foss designed the other sets.",
+  "franchise": "horror",
+  "note": ""
+ },
+ {
+  "name": "The Grand Budapest Hotel",
+  "year": 2014,
+  "director": "Wes Anderson",
+  "cast": [],
+  "overview": "The Grand Budapest Hotel is a 2014 comedy-drama film written and directed by Wes Anderson. The film's seventeen-actor ensemble cast is led by Ralph Fiennes as Monsieur Gustave H., famed concierge of a twentieth-century mountainside resort in the fictional country of Zubrowka. After being framed for the murder of a wealthy dowager, he and his recently befriended protégé Zero embark on a quest for fortune and a priceless Renaissance painting amidst the backdrop of an encroaching fascist regime. Anderson's American Empirical Pictures produced the film in association with Studio Babelsberg, Fox Searchlight Pictures, and Indian Paintbrush's Scott Rudin and Steven Rales. Fox Searchlight supervised the commercial distribution, and The Grand Budapest Hotel's funding came from Indian Paintbrush and German government-funded tax rebates.",
+  "franchise": "comedy",
+  "note": ""
+ },
+ {
+  "name": "The Big Lebowski",
+  "year": 1998,
+  "director": "Joel Coen",
+  "cast": [],
+  "overview": "The Big Lebowski is a 1998 crime comedy film written, directed, produced and co-edited by Joel and Ethan Coen, and starring Jeff Bridges, John Goodman, Julianne Moore, Steve Buscemi, and John Turturro. It follows the life of Jeffrey \"The Dude\" Lebowski, a Los Angeles slacker and avid bowler who is assaulted as a result of mistaken identity and becomes embroiled in a kidnapping and ransom scheme focused on a millionaire who shares his name.",
+  "franchise": "comedy",
+  "note": ""
+ },
+ {
+  "name": "Fargo (1996 film)",
+  "year": 1996,
+  "director": "Joel Coen",
+  "cast": [
+   "Frances Mc"
+  ],
+  "overview": "Fargo is a 1996 crime comedy film written, directed, produced and edited by Joel and Ethan Coen. It stars Frances McDormand, William H. Macy, Steve Buscemi, Harve Presnell, and Peter Stormare. The film follows a pregnant police chief (McDormand), who investigates after a car salesman (Macy) hires two dimwitted criminals to kidnap his wife to extort a ransom from her wealthy father.",
+  "franchise": "comedy",
+  "note": ""
+ },
+ {
+  "name": "No Country for Old Men",
+  "year": 2007,
+  "director": "Joel Coen",
+  "cast": [
+   "Kelly Macdonald"
+  ],
+  "overview": "No Country for Old Men is a 2007 American neo-Western crime thriller film written, directed, produced, and edited by Joel and Ethan Coen, based on Cormac McCarthy's 2005 novel. Starring Tommy Lee Jones, Javier Bardem, and Josh Brolin, the film is set in the desert landscape of 1980 West Texas, United States. The film revisits the themes of fate, conscience, and circumstance that the Coen brothers had explored in the films Blood Simple (1984), Raising Arizona (1987), and Fargo (1996). It follows three main characters: Llewelyn Moss (Brolin), a Vietnam War veteran and welder who stumbles upon a large sum of money in the desert, Anton Chigurh (Bardem), a hitman who is sent to recover the money, and Ed Tom Bell (Jones), a sheriff investigating the crime. The film also stars Kelly Macdonald as Moss's wife, Carla Jean, and Woody Harrelson as Carson Wells, a bounty hunter seeking Moss and the return of the money.",
+  "franchise": "crime",
+  "note": ""
+ },
+ {
+  "name": "Get Out",
+  "year": 2017,
+  "director": "Jordan Peele",
+  "cast": [
+   "Daniel Kaluuya"
+  ],
+  "overview": "Get Out is a 2017 American psychological horror film written, co-produced, and directed by Jordan Peele in his directorial debut. It stars Daniel Kaluuya, Allison Williams, Lil Rel Howery, LaKeith Stanfield, Bradley Whitford, Caleb Landry Jones, Stephen Root, Catherine Keener, and Betty Gabriel. The plot follows a young black man (Kaluuya), who uncovers shocking secrets when he meets the family of his white girlfriend (Williams).",
+  "franchise": "horror",
+  "note": ""
+ },
+ {
+  "name": "Parasite (2019 film)",
+  "year": 2019,
+  "director": "Bong Joon-ho",
+  "cast": [
+   "Song Kang"
+  ],
+  "overview": "Parasite is a 2019 South Korean black comedy thriller film directed by Bong Joon Ho, who co-wrote the screenplay with Han Jin-won. It stars Song Kang-ho, Lee Sun-kyun, Cho Yeo-jeong, Choi Woo-shik, Park So-dam, Jang Hye-jin, Park Myung-hoon, and Lee Jung-eun. The film follows a poor family who infiltrates the home and life of a wealthy family.",
+  "franchise": "drama",
+  "note": ""
+ },
+ {
+  "name": "Memories of Murder",
+  "year": 2003,
+  "director": "Bong Joon-ho",
+  "cast": [
+   "Song Kang"
+  ],
+  "overview": "Memories of Murder is a 2003 South Korean neo-noir crime thriller film directed by Bong Joon Ho, from a screenplay by Bong and Shim Sung-bo, and based on the 1996 play Come to See Me by Kim Kwang-lim. It stars Song Kang-ho and Kim Sang-kyung. In the film, detectives Park Doo-man (Song) and Seo Tae-yoon (Kim) lead an investigation into a string of rapes and murders taking place in Hwaseong in the late 1980s, by a man known as the Hwaesong Killer. The film is a semi-biographical retelling of Korea's police hunting Lee Choon-jae.",
+  "franchise": "crime",
+  "note": ""
+ },
+ {
+  "name": "Train to Busan",
+  "year": 2016,
+  "director": "Yeon Sang-ho",
+  "cast": [
+   "Gong Yoo"
+  ],
+  "overview": "Train to Busan (Korean: 부산행) is a 2016 South Korean action horror film directed by Yeon Sang-ho and written by Park Joo-suk. It stars Gong Yoo, Jung Yu-mi, Ma Dong-seok, Kim Su-an, Choi Woo-shik, Ahn So-hee, and Kim Eui-sung. The film takes place primarily on a KTX from Seoul to Busan as a zombie apocalypse suddenly breaks out in Korean Peninsula and threatens the safety of the passengers.",
+  "franchise": "horror",
+  "note": ""
+ },
+ {
+  "name": "Spirited Away",
+  "year": 2001,
+  "director": "Hayao Miyazaki",
+  "cast": [
+   "Rumi Hiiragi"
+  ],
+  "overview": "Spirited Away is a 2001 Japanese animated fantasy film written and directed by Hayao Miyazaki. It was produced by Toshio Suzuki, animated by Studio Ghibli, and distributed by Toho. The film stars Rumi Hiiragi, alongside Miyu Irino, Mari Natsuki, Takashi Naito, Yasuko Sawaguchi, Tsunehiko Kamijō, Takehiko Ono, and Bunta Sugawara. It follows a young girl named Chihiro \"Sen\" Ogino, who moves to a new neighborhood and inadvertently enters the world of kami. After her parents are turned into pigs by the witch Yubaba, Chihiro takes a job working in Yubaba's bathhouse to find a way to free herself and her parents and return to the human world.",
+  "franchise": "animation",
+  "note": ""
+ },
+ {
+  "name": "Princess Mononoke",
+  "year": 1997,
+  "director": "Hayao Miyazaki",
+  "cast": [],
+  "overview": "Princess Mononoke is a 1997 Japanese animated epic historical fantasy film written and directed by Hayao Miyazaki. Set in the Muromachi period of Japanese history, the film follows Ashitaka, a young Emishi prince who journeys west to cure his cursed arm and becomes embroiled in the conflict between the forest of the gods and a nearby town, as well as the feud between Lady Eboshi, the town's leader, and San, a human girl raised by wolves. Produced by Toshio Suzuki, animated by Studio Ghibli, and distributed by Toho, it stars the voices of Yōji Matsuda, Yuriko Ishida, Yūko Tanaka, Kaoru Kobayashi, Masahiko Nishimura, Tsunehiko Kamijō, Akihiro Miwa, Mitsuko Mori, and Hisaya Morishige.",
+  "franchise": "animation",
+  "note": ""
+ },
+ {
+  "name": "Akira (1988 film)",
+  "year": 1988,
+  "director": "Katsuhiro Otomo",
+  "cast": [],
+  "overview": "Akira is a 1988 Japanese animated cyberpunk action thriller film directed by Katsuhiro Otomo, produced by Ryōhei Suzuki and Shunzō Katō, and written by Otomo and Izo Hashimoto, based on Otomo's 1982 manga Akira. Set in a dystopian 2019, it follows Shōtarō Kaneda, the leader of a biker gang whose childhood friend, Tetsuo Shima, acquires powerful telekinetic abilities after colliding with a child esper in a motorcycle accident, eventually threatening an entire military complex in the sprawling futuristic metropolis of Neo-Tokyo.",
+  "franchise": "animation",
+  "note": ""
+ },
+ {
+  "name": "Ghost in the Shell (1995 film)",
+  "year": 1995,
+  "director": "Mamoru Oshii",
+  "cast": [],
+  "overview": "Ghost in the Shell is a 1995 Japanese animated tech noir action thriller film directed by Mamoru Oshii from a screenplay by Kazunori Itō, based on the 1989 manga by Masamune Shirow. It stars the voices of Atsuko Tanaka, Akio Ōtsuka, and Iemasa Kayumi. It is a Japanese-British international co-production between Kodansha, Bandai Visual and Manga Entertainment, with animation provided by Production I.G.",
+  "franchise": "animation",
+  "note": ""
+ },
+ {
+  "name": "Perfect Blue",
+  "year": 1997,
+  "director": "Satoshi Kon",
+  "cast": [],
+  "overview": "Perfect Blue  is a 1997 Japanese animated psychological thriller film directed by Satoshi Kon. It is loosely based on the novel Perfect Blue: Complete Metamorphosis  by Yoshikazu Takeuchi, with a screenplay by Sadayuki Murai. Featuring the voices of Junko Iwao, Rica Matsumoto, Shiho Niiyama, Masaaki Okura, Shinpachi Tsuji and Emiko Furukawa, the plot follows a member of a Japanese idol group who retires from music to pursue an acting career. As she becomes a victim of stalking by her obsessive fan, gruesome murders take place, and she begins losing her grip on reality. The film deals with the blurring of the line between fantasy and reality, a commonly found theme in Kon's other works, such as Millennium Actress (2001), Paranoia Agent (2004), and Paprika (2006).",
+  "franchise": "animation",
+  "note": ""
+ },
+ {
+  "name": "Toy Story",
+  "year": 1995,
+  "director": "John Lasseter",
+  "cast": [],
+  "overview": "Toy Story is a 1995 American animated adventure comedy film directed by John Lasseter, and written by Joss Whedon, Andrew Stanton, Joel Cohen, and Alec Sokolow. The first entirely computer-animated feature film, as well as the first feature film produced by Pixar Animation Studios for Walt Disney Pictures, it stars the voices of Tom Hanks, Tim Allen, Annie Potts, John Ratzenberger, Don Rickles, Wallace Shawn, and Jim Varney. Set in a world in which toys come to life, Toy Story follows an old-fashioned cowboy doll named Woody (Hanks), who becomes jealous that a space cadet action figure, Buzz Lightyear (Allen), is replacing him as the favorite toy of their owner Andy.",
+  "franchise": "animation",
+  "note": ""
+ },
+ {
+  "name": "Up (2009 film)",
+  "year": 2009,
+  "director": "Pete Docter",
+  "cast": [],
+  "overview": "Up is a 2009 American animated adventure film directed by Pete Docter who co-wrote it with Bob Peterson. Produced by Pixar Animation Studios for Walt Disney Pictures, the film centers on Carl Fredricksen, an elderly widower who, by attaching numerous helium balloons to his house, travels to Venezuela with youngster Russell in order to fulfill a promise that he made to his late wife. Along the way, they befriend a talking dog as well as an exotic bird and encounter Carl's childhood idol Charles Muntz, who has sinister plans to capture the bird.",
+  "franchise": "animation",
+  "note": ""
+ },
+ {
+  "name": "WALL-E",
+  "year": 2008,
+  "director": "Andrew Stanton",
+  "cast": [],
+  "overview": "WALL-E is a 2008 American animated science fiction film directed by Andrew Stanton, who co-wrote the screenplay with Jim Reardon, based on a story by Stanton and Pete Docter. Produced by Pixar Animation Studios for Walt Disney Pictures, the film stars the voices of Ben Burtt, Elissa Knight, Jeff Garlin, John Ratzenberger, Kathy Najimy, and Sigourney Weaver, with Fred Willard in a live-action role. The film follows a solitary robot named WALL-E on a future, uninhabitable, deserted Earth in 2805, left to clean up garbage. He is visited by a robot called EVE sent from the starship Axiom, whom he falls in love with and pursues across the galaxy.",
+  "franchise": "animation",
+  "note": ""
+ },
+ {
+  "name": "Everything Everywhere All at Once",
+  "year": 2022,
+  "director": "Daniel Kwan",
+  "cast": [
+   "Stephanie Hsu"
+  ],
+  "overview": "Everything Everywhere All at Once is a 2022 American absurdist comedy-drama film written and directed by Daniel Kwan and Daniel Scheinert who produced it with Anthony and Joe Russo and Jonathan Wang. The film incorporates media from several genres, including surreal comedy, science fiction, fantasy, martial arts films, and immigrant narrative. Michelle Yeoh stars as Evelyn Quan Wang, a Chinese-American immigrant who, while being audited by the IRS, discovers that she must connect with parallel universe versions of herself to prevent a powerful being from destroying the multiverse. The independent film also stars Stephanie Hsu, Ke Huy Quan, James Hong, and Jamie Lee Curtis.",
+  "franchise": "scifi",
+  "note": ""
+ },
+ {
+  "name": "Barbie (film)",
+  "year": 2023,
+  "director": "Greta Gerwig",
+  "cast": [],
+  "overview": "Barbie is a 2023 satirical fantasy comedy film directed by Greta Gerwig from a screenplay she wrote with her husband, Noah Baumbach. Based on the fashion dolls by Mattel, it is the first live-action Barbie film after numerous animated films and specials. Starring Margot Robbie as the title character and Ryan Gosling as Ken, the film follows them on a journey of self-discovery through Barbieland and the real world following an existential crisis. The supporting cast includes America Ferrera, Michael Cera, Kate McKinnon, Issa Rae, Rhea Perlman, and Will Ferrell.",
+  "franchise": "comedy",
+  "note": ""
+ }
+]

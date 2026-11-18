@@ -1,0 +1,43 @@
+name: bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Stop after N upserted points (leave empty for the full run)"
+        required: false
+        default: ""
+      types:
+        description: "movie, series, or both"
+        required: false
+        default: "movie series"
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-minilm-v1
+      - run: pip install -r jobs/requirements.txt
+      - name: bootstrap
+        run: |
+          LIMIT_ARG=""
+          if [ -n "${{ inputs.limit }}" ]; then LIMIT_ARG="--limit ${{ inputs.limit }}"; fi
+          python jobs/sync_tmdb.py --mode bootstrap --types ${{ inputs.types }} $LIMIT_ARG \
+            --stats-out bootstrap-stats.json
+        env:
+          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bootstrap-stats
+          path: bootstrap-stats.json
+          if-no-files-found: ignore
