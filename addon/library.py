@@ -76,21 +76,78 @@ async def handle_library_event(trakt: TraktClient, media_type: str, meta_id: str
     media = _media(media_type, imdb_id)
     try:
         if action == "watched":
-            await trakt.add_history(media, watched_at=watched_at)
+            body = await trakt.add_history(media, watched_at=watched_at)
         elif action == "libraryAdd":
-            await trakt.add_watchlist(media)
+            body = await trakt.add_watchlist(media)
         else:  # libraryRemove
-            await trakt.remove_watchlist(media)
+            body = await trakt.remove_watchlist(media)
     except TraktError as exc:
-        # 403 is the common case: the token lacks write scope.
+        # 403 is the common case: either no write scope or the CDN block (1010).
         log.warning("trakt %s failed for %s: %s", action, imdb_id, exc)
         return LibraryResult(False, action, str(exc)[:200])
     except Exception as exc:  # noqa: BLE001 - never 500 a Stremio event
         log.warning("trakt %s errored for %s: %s", action, imdb_id, type(exc).__name__)
         return LibraryResult(False, action, f"{type(exc).__name__}: {exc}"[:200])
 
-    note = action
-    if action == "watched" and video_id:
-        note = "watched (show-level; per-episode history not recorded)"
-    log.info("trakt %s ok for %s (%s)", action, imdb_id, media_type)
-    return LibraryResult(True, action, note)
+    # A 2xx from Trakt does NOT mean the item was written: a bad id lands in
+    # `not_found` and a repeat lands in `existing`/`updated`, both with a 2xx.
+    # Reporting success without reading the body is how this silently did nothing.
+    ok, note = _interpret(action, body or {})
+
+    if action == "watched" and video_id and ok:
+        note += " (show-level; per-episode history not recorded)"
+    if ok:
+        log.info("trakt %s ok for %s (%s): %s", action, imdb_id, media_type, note)
+    else:
+        log.warning("trakt %s NOT applied for %s (%s): %s", action, imdb_id,
+                    media_type, note)
+    return LibraryResult(ok, action, note)
+
+
+def _count(body: dict[str, Any], key: str, kind: str) -> int:
+    """Trakt returns {"added":{"movies":1}} / {"deleted":{...}} / {"not_found":{...}}.
+
+    Any of those may hold a list of objects instead of a number, so this never
+    assumes the value is an int (a wrong assumption crashed the first version).
+    """
+    section = body.get(key)
+    if not isinstance(section, dict):
+        return 0
+    for candidate in (section.get("movies"), section.get(kind)):
+        if isinstance(candidate, list):
+            return len(candidate)
+        if isinstance(candidate, (int, float)):
+            return int(candidate)
+    return 0
+
+
+def _interpret(action: str, body: dict[str, Any]) -> tuple[bool, str]:
+    """Decide whether Trakt actually applied the change, and describe it."""
+    if not body:
+        # No JSON body at all — can't confirm, so don't claim success.
+        return False, "Trakt returned an empty response"
+
+    if action == "watched":
+        added = _count(body, "added", "episodes")
+        if added:
+            return True, f"added {added} to Trakt history"
+        if _count(body, "updated", "episodes"):
+            return True, "already in Trakt history (updated)"
+        missing = (body.get("not_found") or {}).get("movies") or []
+        if missing:
+            return False, f"Trakt could not resolve this title: {missing}"
+        return False, f"Trakt did not record it: {body}"
+
+    if action == "libraryAdd":
+        if _count(body, "added", "shows"):
+            return True, "added to Trakt watchlist"
+        if _count(body, "existing", "shows"):
+            return True, "already on Trakt watchlist"
+        return False, f"Trakt did not add it: {body}"
+
+    # libraryRemove
+    if _count(body, "deleted", "shows"):
+        return True, "removed from Trakt watchlist"
+    if _count(body, "not_found", "shows"):
+        return True, "was not on the Trakt watchlist"
+    return False, f"Trakt did not remove it: {body}"

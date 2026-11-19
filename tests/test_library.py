@@ -16,28 +16,35 @@ from addon.trakt import TraktConfig, TraktError
 
 
 class FakeTrakt:
-    """Records write calls; never touches the network."""
+    """Records write calls; returns Trakt-shaped bodies. Never touches the network."""
 
-    def __init__(self, fail: Exception | None = None) -> None:
+    HISTORY_ADDED = {"added": {"movies": 1, "episodes": 0}, "updated": {"movies": 0},
+                     "not_found": {"movies": []}}
+    HISTORY_NOT_FOUND = {"added": {"movies": 0}, "updated": {"movies": 0},
+                         "not_found": {"movies": [{"ids": {"imdb": "ttX"}}]}}
+    WATCHLIST_ADDED = {"added": {"movies": 1, "shows": 0}, "existing": {"movies": 0},
+                       "not_found": {"movies": []}}
+    WATCHLIST_DELETED = {"deleted": {"movies": 1, "shows": 0}, "not_found": {"movies": []}}
+
+    def __init__(self, fail: Exception | None = None, body: dict | None = None) -> None:
         self.calls: list[tuple[str, dict]] = []
         self.fail = fail
+        self.body = body
 
     async def add_history(self, media, watched_at="now"):
-        self._record("history", media)
-        return {}
+        return self._record("history", media, self.HISTORY_ADDED)
 
     async def add_watchlist(self, media):
-        self._record("watchlist_add", media)
-        return {}
+        return self._record("watchlist_add", media, self.WATCHLIST_ADDED)
 
     async def remove_watchlist(self, media):
-        self._record("watchlist_remove", media)
-        return {}
+        return self._record("watchlist_remove", media, self.WATCHLIST_DELETED)
 
-    def _record(self, name, media):
+    def _record(self, name, media, default):
         if self.fail:
             raise self.fail
         self.calls.append((name, media))
+        return self.body if self.body is not None else default
 
 
 def run(coro):
@@ -115,6 +122,49 @@ def test_unexpected_exception_is_contained():
 
     result = run(handle_library_event(Boom(), "movie", "tt1", "watched"))
     assert not result.ok and "RuntimeError" in result.detail
+
+
+# ------------------------------------------- success must reflect Trakt's body
+def test_trakt_not_found_is_reported_as_failure():
+    """A 2xx with not_found means nothing was written — never report success."""
+    trakt = FakeTrakt(body=FakeTrakt.HISTORY_NOT_FOUND)
+    result = run(handle_library_event(trakt, "movie", "ttX", "watched"))
+    assert not result.ok
+    assert "could not resolve" in result.detail
+
+
+def test_already_watched_counts_as_success():
+    trakt = FakeTrakt(body={"added": {"movies": 0}, "updated": {"movies": 1},
+                            "not_found": {"movies": []}})
+    result = run(handle_library_event(trakt, "movie", "tt1", "watched"))
+    assert result.ok and "already" in result.detail
+
+
+def test_empty_response_is_not_success():
+    trakt = FakeTrakt(body={})
+    result = run(handle_library_event(trakt, "movie", "tt1", "watched"))
+    assert not result.ok and "empty" in result.detail
+
+
+def test_watchlist_add_reports_existing():
+    trakt = FakeTrakt(body={"added": {"movies": 0}, "existing": {"movies": 1},
+                            "not_found": {"movies": []}})
+    result = run(handle_library_event(trakt, "movie", "tt1", "libraryAdd"))
+    assert result.ok and "already" in result.detail
+
+
+def test_watchlist_remove_of_absent_item_is_success():
+    trakt = FakeTrakt(body={"deleted": {"movies": 0},
+                            "not_found": {"movies": [{"ids": {"imdb": "tt1"}}]}})
+    result = run(handle_library_event(trakt, "movie", "tt1", "libraryRemove"))
+    assert result.ok and "was not on" in result.detail
+
+
+def test_cdn_block_message_is_not_blamed_on_permissions():
+    """403 error 1010 is a Cloudflare block, not a scope problem."""
+    trakt = FakeTrakt(fail=TraktError("Trakt's CDN blocked this request (403 error code: 1010)"))
+    result = run(handle_library_event(trakt, "movie", "tt1", "watched"))
+    assert not result.ok and "1010" in result.detail
 
 
 # --------------------------------------------------------------- HTTP layer

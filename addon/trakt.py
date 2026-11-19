@@ -25,6 +25,9 @@ log = logging.getLogger(__name__)
 API = "https://api.trakt.tv"
 PAGE_LIMIT = 100
 MAX_PAGES = 10
+# Identifying UA — required by Trakt (their CDN answers 403 "error code: 1010"
+# to unknown / bot-like agents).
+USER_AGENT = "MovieMatch/1.0 (Stremio addon; personal use)"
 
 
 @dataclass(frozen=True)
@@ -60,6 +63,10 @@ class TraktClient:
             "trakt-api-version": "2",
             "trakt-api-key": self.config.client_id,
             "Authorization": f"Bearer {self.config.access_token}",
+            # Trakt's Cloudflare layer blocks clients with a missing or bot-like
+            # User-Agent (error 1010). Their maintainers ask for an identifying
+            # "App/version" string (trakt-api discussion #655).
+            "User-Agent": USER_AGENT,
         }
 
     async def _get(self, path: str, **params: Any) -> list[dict[str, Any]]:
@@ -117,9 +124,14 @@ class TraktClient:
         if response.status_code == 401:
             raise TraktError("Trakt rejected the access token (401)")
         if response.status_code == 403:
+            body = response.text[:200]
+            if "1010" in body:
+                # Cloudflare blocked the client itself — NOT a permission problem.
+                raise TraktError(
+                    f"Trakt's CDN blocked this request (403 error code: 1010): {body}")
             raise TraktError(
                 "Trakt refused the write (403): the app needs write permissions — "
-                "re-authorize with a Trakt app that has write access")
+                f"re-authorize with a Trakt app that has write access. {body}")
         if response.status_code == 420:
             raise TraktError("Trakt limit reached (420)")
         if response.status_code >= 300:
