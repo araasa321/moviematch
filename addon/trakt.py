@@ -142,14 +142,20 @@ class TraktClient:
                           watched_at: str = "now") -> dict[str, Any]:
         """POST /sync/history — mark watched.
 
-        `watched_at` defaults to "now". Trakt does NOT de-duplicate, and their docs
-        warn that duplicate item+watched_at pairs create duplicate plays, so callers
-        should send a stable value or "unknown" when replaying the same event.
+        `media` is the {"movie"/"show": {...}} wrapper also used by the watchlist
+        calls; Trakt's history body wants the INNER object plus `watched_at`:
+            {"movies": [{"ids": {"imdb": "tt..."}, "watched_at": "now"}]}
+        Wrapping it as {"movies": [{"movie": {...}}]} puts the id one level too
+        deep, Trakt answers 201 with the item in `not_found`, and nothing is
+        recorded — the exact failure seen on the live deployment.
+
+        Trakt does NOT de-duplicate: duplicate item+watched_at pairs create
+        duplicate plays, so callers should send a stable value when replaying.
         """
-        body = {"movies": [media]} if "movie" in media else {"shows": [media]}
-        for item in body.get("movies", []) + body.get("shows", []):
-            item["watched_at"] = watched_at
-        return await self._post("/sync/history", body)
+        key = "movie" if "movie" in media else "show"
+        inner = dict(media[key])
+        inner["watched_at"] = watched_at
+        return await self._post("/sync/history", {f"{key}s": [inner]})
 
     async def add_watchlist(self, media: dict[str, Any]) -> dict[str, Any]:
         """POST /sync/watchlist — add to watchlist (Trakt answers 201)."""
