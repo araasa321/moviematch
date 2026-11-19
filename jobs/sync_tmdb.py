@@ -77,6 +77,7 @@ class Stats:
     skipped_existing: int = 0
     payload_updates: int = 0
     reembedded: int = 0
+    errors: int = 0
     calls: int = 0
     started: float = field(default_factory=time.monotonic)
 
@@ -86,7 +87,8 @@ class Stats:
 
     def line(self) -> str:
         return (f"fetched={self.fetched} kept={self.kept} dropped={self.dropped} "
-                f"no_imdb={self.missing_imdb} upserted={self.upserted} "
+                f"no_imdb={self.missing_imdb} errors={self.errors} "
+                f"upserted={self.upserted} "
                 f"skipped={self.skipped_existing} payload={self.payload_updates} "
                 f"reembed={self.reembedded} calls={self.calls} "
                 f"{time.monotonic() - self.started:.1f}s")
@@ -125,9 +127,9 @@ async def fetch_and_build(client: TMDBClient, media_type: str,
     seen: set[int] = set()
     skipped = 0
 
+    # Dedupe + skip known BEFORE any network work.
+    pending: list[int] = []
     for item in candidates:
-        if limit is not None and len(ready) >= limit:
-            break
         tmdb_id = int(item.get("id") or 0)
         if not tmdb_id or tmdb_id in seen:
             continue
@@ -135,29 +137,50 @@ async def fetch_and_build(client: TMDBClient, media_type: str,
         if point_id(media_type, tmdb_id) in known:
             skipped += 1
             continue
+        pending.append(tmdb_id)
+        if limit is not None and len(pending) >= limit:
+            break
+
+    async def one(tmdb_id: int) -> dict[str, Any] | None:
+        """Fetch one title. Returns a ready row, or None (dropped / errored)."""
         stats.fetched += 1
         try:
             details = await client.details(media_type, tmdb_id)
+            if not enrichable(details):
+                stats.dropped += 1
+                return None
+            payload = policy.normalize_payload(media_type, details, year_now=year_now)
+            verdict = policy.should_index(payload, year_now=year_now,
+                                          in_trakt=tmdb_id in trakt_ids)
         except Exception as exc:  # noqa: BLE001 - one bad title must not kill the run
-            log.warning("details failed for %s:%s (%s)", media_type, tmdb_id, exc)
-            continue
-        if not enrichable(details):
-            stats.dropped += 1
-            continue
-
-        payload = policy.normalize_payload(media_type, details, year_now=year_now)
-        verdict = policy.should_index(payload, year_now=year_now, in_trakt=tmdb_id in trakt_ids)
+            # Covers the network call AND payload normalisation: TMDB occasionally
+            # returns explicit nulls for optional fields, and one malformed record
+            # used to abort an entire 90-minute bootstrap.
+            stats.errors += 1
+            log.warning("skipping %s:%s (%s: %s)", media_type, tmdb_id,
+                        type(exc).__name__, exc)
+            return None
         if not verdict.keep:
             stats.dropped += 1
-            continue
+            return None
         stats.kept += 1
         if verdict.missing == "imdb_id":
             # kept in the catalog but Stremio cannot render it (§5)
             stats.missing_imdb += 1
-
         text = build_text(payload)
         payload["text_hash"] = text_hash(text)
-        ready.append({"payload": payload, "text": text})
+        return {"payload": payload, "text": text}
+
+    # Bounded fan-out: the client's pacer keeps the average rate at `rate` req/s
+    # while up to `concurrency` requests overlap, so latency stops serialising
+    # the run. Results are appended in completion order (order is irrelevant
+    # here: every row carries its own payload).
+    workers = max(1, int(getattr(client, "concurrency", 1) or 1))
+    for start in range(0, len(pending), workers):
+        chunk = pending[start:start + workers]
+        for row in await asyncio.gather(*(one(tid) for tid in chunk)):
+            if row is not None:
+                ready.append(row)
 
     if skipped:
         stats.skipped_existing += skipped
@@ -231,7 +254,8 @@ async def bootstrap(args: argparse.Namespace) -> Stats:
     year_now = datetime.now(timezone.utc).year
     years = bootstrap_years(args)
     log.info("bootstrap years: %s", _describe_years(years))
-    async with TMDBClient(args.tmdb_token, rate=args.rate) as client:
+    async with TMDBClient(args.tmdb_token, rate=args.rate,
+                                concurrency=args.concurrency) as client:
         for media_type in args.types:
             threshold = policy.MOVIE_MIN_VOTES if media_type == "movie" else \
                 policy.SERIES_MIN_VOTES
@@ -343,7 +367,8 @@ async def nightly(args: argparse.Namespace) -> Stats:
     year_now = datetime.now(timezone.utc).year
     today = datetime.now(timezone.utc).strftime("%m_%d_%Y")
 
-    async with TMDBClient(args.tmdb_token, rate=args.rate) as client:
+    async with TMDBClient(args.tmdb_token, rate=args.rate,
+                                concurrency=args.concurrency) as client:
         payloads = await existing_payloads(qdrant) if not args.dry_run else {}
 
         # 1+2. daily exports -> new ids and popularity refresh
@@ -445,6 +470,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--min-votes", type=int, default=None,
                         help="override the vote_count threshold for every slice")
     parser.add_argument("--rate", type=float, default=float(os.environ.get("TMDB_RATE", "15")))
+    parser.add_argument("--concurrency", type=int,
+                        default=int(os.environ.get("TMDB_CONCURRENCY", "8")),
+                        help="in-flight TMDB requests; the pacer still caps the rate")
     parser.add_argument("--batch", type=int, default=64)
     parser.add_argument("--model", default="sentence-transformers/all-MiniLM-L6-v2")
     parser.add_argument("--recreate", action="store_true", help="drop + recreate collection")

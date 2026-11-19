@@ -38,9 +38,11 @@ class TMDBClient:
     rate: float = DEFAULT_RATE
     timeout: float = 30.0
     max_retries: int = MAX_RETRIES
+    concurrency: int = 8          # in-flight requests; keeps rate at `rate` but hides latency
     _client: httpx.AsyncClient | None = field(default=None, repr=False)
     _interval: float = field(init=False, repr=False)
     _next_at: float = field(default=0.0, init=False, repr=False)
+    _lock: asyncio.Lock | None = field(default=None, init=False, repr=False)
     calls: int = field(default=0, init=False)
 
     def __post_init__(self) -> None:
@@ -50,8 +52,11 @@ class TMDBClient:
         self._client = httpx.AsyncClient(
             base_url=API,
             timeout=self.timeout,
+            limits=httpx.Limits(max_connections=self.concurrency + 2,
+                                max_keepalive_connections=self.concurrency + 2),
             headers={"Authorization": f"Bearer {self.token}", "Accept": "application/json"},
         )
+        self._lock = asyncio.Lock()
         return self
 
     async def __aexit__(self, *exc: object) -> None:
@@ -60,10 +65,22 @@ class TMDBClient:
             self._client = None
 
     async def _pace(self) -> None:
-        now = time.monotonic()
-        if now < self._next_at:
-            await asyncio.sleep(self._next_at - now)
-        self._next_at = max(now, self._next_at) + self._interval
+        """Reserve this call's slot at `rate` req/s.
+
+        Lock-protected because several requests are now in flight at once: without
+        it, concurrent callers would all observe the same `_next_at` and burst
+        past the rate limit. Each caller takes its own slot, then sleeps until
+        that slot arrives — so the *average* rate is respected while latency
+        overlaps instead of serialising every call.
+        """
+        lock = self._lock or asyncio.Lock()
+        async with lock:
+            now = time.monotonic()
+            slot = max(now, self._next_at)
+            self._next_at = slot + self._interval
+        delay = slot - time.monotonic()
+        if delay > 0:
+            await asyncio.sleep(delay)
 
     async def get(self, path: str, **params: Any) -> dict[str, Any]:
         """GET with pacing, retry on 429/5xx and Retry-After support."""

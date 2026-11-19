@@ -118,11 +118,15 @@ def normalize_payload(media_type: str, details: dict[str, Any], *, year_now: int
 
     external = details.get("external_ids") or {}
     collection = details.get("belongs_to_collection") or {}
+    # `.get(key, "")` only defaults when the key is ABSENT. TMDB returns explicit
+    # nulls (e.g. "last_air_date": null for a series with no aired finale), which
+    # crashed a live bootstrap with "'NoneType' object is not subscriptable".
     release = details.get("release_date") or details.get("first_air_date") or ""
     year = int(release[:4]) if release[:4].isdigit() else None
     end_year = None
-    if is_series and details.get("last_air_date", "")[:4].isdigit():
-        end_year = int(details["last_air_date"][:4])
+    last_air = details.get("last_air_date") or ""
+    if is_series and last_air[:4].isdigit():
+        end_year = int(last_air[:4])
 
     payload = {
         "tmdb_id": int(details.get("id") or 0),
