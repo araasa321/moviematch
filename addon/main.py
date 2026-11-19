@@ -28,6 +28,7 @@ from . import __version__
 from .config import Config, ConfigError, secret_ok
 from .fixtures import catalog as fixture_catalog
 from .fixtures import trakt_history
+from .library import handle_library_event
 from .memory_store import MemoryStore, load_records_from_json
 from .qdrant import QdrantClient, QdrantConfig
 from .rows import RowPlan, build_row, build_user_state, to_metas
@@ -270,6 +271,32 @@ def make_app(store: Any | None = None,
         if plan.ranked:
             row_cache[key] = (now, plan)
         return plan
+
+    # ------------------------------------------------- library events (writes)
+    async def _library(config_blob: str, media_type: str, meta_id: str,
+                       extra: dict[str, str]) -> JSONResponse:
+        config, error = load_config(config_blob)
+        if error is not None:
+            return error
+        if media_type not in VALID_TYPES:
+            return JSONResponse({"success": False, "detail": "unsupported type"},
+                                status_code=404)
+        result = await handle_library_event(
+            trakt, media_type, meta_id, extra.get("action", ""),
+            video_id=extra.get("videoId") or None)
+        # Stremio ignores the body; 200 keeps its logs clean.
+        return JSONResponse(result.as_dict(), status_code=200)
+
+    @app.get("/{config_blob}/library/{media_type}/{meta_id}/{extra}.json")
+    @app.post("/{config_blob}/library/{media_type}/{meta_id}/{extra}.json")
+    async def library_extra(config_blob: str, media_type: str, meta_id: str,
+                            extra: str) -> JSONResponse:
+        return await _library(config_blob, media_type, meta_id, parse_extra(extra))
+
+    @app.get("/{config_blob}/library/{media_type}/{meta_id}.json")
+    @app.post("/{config_blob}/library/{media_type}/{meta_id}.json")
+    async def library_plain(config_blob: str, media_type: str, meta_id: str) -> JSONResponse:
+        return await _library(config_blob, media_type, meta_id, {})
 
     return app
 

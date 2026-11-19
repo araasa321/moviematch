@@ -71,7 +71,13 @@ def build_manifest(base_url: str, config_blob: str, seeds: dict[str, str] | None
         "name": "MovieMatch — For You",
         "description": "Trakt-personalized recommendations. Uses TMDB.",
         "logo": f"{base_url}/static/logo.png",
-        "resources": ["catalog"],
+        # `catalog` serves rows; `library` is an EVENT resource — Stremio posts the
+        # user's mark-watched / add-to-list actions here so we can mirror them to
+        # Trakt, which its own integration does not do (stremio-features#1305).
+        "resources": [
+            "catalog",
+            {"name": "library", "types": ["movie", "series"], "idPrefixes": ["tt"]},
+        ],
         "types": ["movie", "series"],
         "idPrefixes": ["tt"],
         # `configurationRequired` must stay False: the config is already baked into

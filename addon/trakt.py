@@ -104,6 +104,51 @@ class TraktClient:
         listed = await self.watchlist("movies") + await self.watchlist("shows")
         return {"watched": watched, "ratings": rated, "watchlist": listed}
 
+    # ------------------------------------------------------------- writes
+    # NOTE: there is deliberately NO history-remove / unwatched support.
+    # Deleting watch history is irreversible and a wrong removal corrupts the
+    # user's taste profile, so that action is not implemented (by request).
+    async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if not self.config.configured:
+            raise TraktError("Trakt is not configured")
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(f"{API}{path}", headers=self._headers(), json=payload)
+        self.calls += 1
+        if response.status_code == 401:
+            raise TraktError("Trakt rejected the access token (401)")
+        if response.status_code == 403:
+            raise TraktError(
+                "Trakt refused the write (403): the app needs write permissions — "
+                "re-authorize with a Trakt app that has write access")
+        if response.status_code == 420:
+            raise TraktError("Trakt limit reached (420)")
+        if response.status_code >= 300:
+            raise TraktError(f"POST {path} -> {response.status_code}: {response.text[:160]}")
+        return response.json() if response.content else {}
+
+    async def add_history(self, media: dict[str, Any],
+                          watched_at: str = "now") -> dict[str, Any]:
+        """POST /sync/history — mark watched.
+
+        `watched_at` defaults to "now". Trakt does NOT de-duplicate, and their docs
+        warn that duplicate item+watched_at pairs create duplicate plays, so callers
+        should send a stable value or "unknown" when replaying the same event.
+        """
+        body = {"movies": [media]} if "movie" in media else {"shows": [media]}
+        for item in body.get("movies", []) + body.get("shows", []):
+            item["watched_at"] = watched_at
+        return await self._post("/sync/history", body)
+
+    async def add_watchlist(self, media: dict[str, Any]) -> dict[str, Any]:
+        """POST /sync/watchlist — add to watchlist (Trakt answers 201)."""
+        return await self._post("/sync/watchlist",
+                                {"movies": [media]} if "movie" in media else {"shows": [media]})
+
+    async def remove_watchlist(self, media: dict[str, Any]) -> dict[str, Any]:
+        """POST /sync/watchlist/remove — note: a POST to /remove, not a DELETE."""
+        return await self._post("/sync/watchlist/remove",
+                                {"movies": [media]} if "movie" in media else {"shows": [media]})
+
     async def health(self) -> dict[str, Any]:
         if not self.config.configured:
             return {"configured": False, "ok": False, "mode": "unconfigured"}

@@ -133,7 +133,10 @@ def test_parse_extra_and_skip():
 
 def test_manifest_has_expected_catalogs():
     manifest = build_manifest("https://x.test", "blob", {"movie": "The Dark Knight", "series": "Breaking Bad"})
-    assert manifest["resources"] == ["catalog"]
+    # catalog serves rows; the library event resource mirrors watch/list actions
+    assert "catalog" in manifest["resources"]
+    assert any(isinstance(r, dict) and r.get("name") == "library"
+               for r in manifest["resources"])
     assert manifest["idPrefixes"] == ["tt"]
     assert set(manifest["types"]) == {"movie", "series"}
     ids = [(c["type"], c["id"]) for c in manifest["catalogs"]]
