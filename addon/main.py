@@ -248,15 +248,21 @@ def make_app(store: Any | None = None,
         return https_url, "stremio://" + https_url[len("https://"):]
 
     def _self_endpoint(request: Request, path: str) -> str:
-        """URL the *page itself* should call back on.
+        """Path the page should call back on — deliberately RELATIVE.
 
-        Must NOT be upgraded to https: this is a same-origin browser request, so
-        it has to use the scheme the page was actually served over. Using the
-        https-upgraded origin made every fetch fail with ERR_SSL_PROTOCOL_ERROR
-        whenever TLS is terminated in front of the app (local runs, and any proxy
-        that does not serve https directly).
+        Getting this wrong has now broken the page twice in opposite directions:
+
+          * https-upgrading it broke every local run (fetch to a TLS port that is
+            not serving TLS -> ERR_SSL_PROTOCOL_ERROR);
+          * trusting `request.base_url` broke production, because behind a TLS
+            proxy (Koyeb) the container sees `http://` while the browser is on
+            `https://`, so the fetch was blocked as Mixed Content.
+
+        A relative path sidesteps the whole question: the browser resolves it
+        against the page's own scheme and origin, so it can never mismatch. There
+        is nothing left for the server to guess.
         """
-        return f"{str(request.base_url).rstrip('/')}{path}"
+        return path
 
     @app.get("/configure")
     async def configure(request: Request) -> HTMLResponse:

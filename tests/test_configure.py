@@ -232,17 +232,29 @@ def test_configure_english_only_has_no_warning(client):
 # ------------------------------------------------- regressions found in a browser
 # Both of these passed the server-side tests and only failed in a real page,
 # so they are pinned here at the level that would have caught them.
-def test_page_fetches_itself_over_the_served_scheme(client):
-    """The page must call back on the scheme it was served with.
+def test_page_binds_a_relative_fetch_endpoint(client):
+    """The page must POST back to a bare relative path.
 
-    The install URL is deliberately https-upgraded (Stremio rejects http), but
-    that upgrade was also applied to the in-page fetch endpoint, so every request
-    died with ERR_SSL_PROTOCOL_ERROR whenever TLS terminated in front of the app.
+    Absolute URLs broke this page twice, in opposite directions: an http://
+    absolute URL is blocked as Mixed Content on an https:// page (the production
+    failure behind Koyeb's TLS proxy), and an https:// absolute URL fails on a
+    plain-http local run. A relative path lets the browser resolve the scheme, so
+    neither is possible.
     """
     body = client.get("/configure").text
-    assert "ERR_SSL" not in body
-    # served over http:// in tests, so the endpoint must not be https://
-    assert '"http://test/configure.json"' in body, body[-800:]
+    assert '"/configure.json"' in body, body[-900:]
+
+
+def test_no_absolute_url_leaks_into_the_page_script(client):
+    """No absolute URL may appear in the script block.
+
+    This is the exact shape of the Mixed Content bug: the script held an
+    `http://...` URL while the page was served over https.
+    """
+    body = client.get("/configure").text
+    script = body.split("<script>", 1)[1].split("</script>", 1)[0]
+    assert "http://" not in script, "absolute http:// URL in page script"
+    assert "https://" not in script, "absolute https:// URL in page script"
 
 
 def test_install_link_is_still_https_upgraded(client):

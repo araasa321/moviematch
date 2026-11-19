@@ -202,6 +202,39 @@
       .map(function (i) { return i.value; });
   }
 
+  function request(url) {
+    return fetch(url, {
+      headers: { 'Accept': 'application/json' },
+      // Same-origin: sending cookies/credentials is unnecessary and would make
+      // a future cross-origin move fail silently.
+      credentials: 'same-origin'
+    }).then(function (r) {
+      if (!r.ok) { throw new Error('HTTP ' + r.status); }
+      return r.json();
+    });
+  }
+
+  function render(data) {
+    if (!data || !data.ok) {
+      langMsg.textContent = (data && data.error) || 'Configuration rejected.';
+      langMsg.className = 'msg err';
+      install.setAttribute('aria-disabled', 'true');
+      install.setAttribute('href', '#');
+      urlBox.textContent = '';
+      summary.innerHTML = '';
+      warn.textContent = '';
+      return;
+    }
+    langMsg.textContent = '';
+    langMsg.className = 'msg';
+    install.setAttribute('href', data.stremio_url);
+    install.removeAttribute('aria-disabled');
+    urlBox.textContent = data.https_url;
+    summary.innerHTML = data.summary;
+    warn.textContent = data.warning || '';
+    warn.className = 'msg warn';
+  }
+
   function update() {
     paint();
     var params = new URLSearchParams();
@@ -211,28 +244,18 @@
     if (layout) { params.append('layout', layout.value); }
     if (mode) { params.append('mode', mode.value); }
 
-    fetch(endpoint + '?' + params.toString(), { headers: { 'Accept': 'application/json' } })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (!data.ok) {
-          langMsg.textContent = data.error || 'Configuration rejected.';
-          langMsg.className = 'msg err';
-          install.setAttribute('aria-disabled', 'true');
-          install.setAttribute('href', '#');
-          urlBox.textContent = '';
-          summary.innerHTML = '';
-          warn.textContent = '';
-          return;
-        }
-        langMsg.textContent = '';
-        langMsg.className = 'msg';
-        install.setAttribute('href', data.stremio_url);
-        install.removeAttribute('aria-disabled');
-        urlBox.textContent = data.https_url;
-        summary.innerHTML = data.summary;
-        warn.textContent = data.warning || '';
-        warn.className = 'msg warn';
-      })
+    // `endpoint` is a RELATIVE path (e.g. "/configure.json"), so the browser
+    // resolves it against this page's own scheme and origin. Never make it
+    // absolute: an http:// absolute URL on an https:// page is blocked as
+    // Mixed Content, and an https:// absolute URL fails on a plain-http local
+    // run. Both of those bugs have shipped once already.
+    //
+    // One retry is included: a cold instance behind a proxy can drop the first
+    // request, which used to leave the page permanently stuck on "could not
+    // reach the server".
+    request(endpoint + '?' + params.toString())
+      .catch(function () { return request(endpoint + '?' + params.toString()); })
+      .then(render)
       .catch(function () {
         langMsg.textContent = 'Could not reach the server to build the link.';
         langMsg.className = 'msg err';
