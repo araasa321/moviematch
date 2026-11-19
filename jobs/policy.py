@@ -39,12 +39,20 @@ class Inclusion:
 
 
 def should_index(payload: dict[str, Any], *, year_now: int, in_trakt: bool = False,
-                 keep_langs: Iterable[str] | None = None) -> Inclusion:
+                 keep_langs: Iterable[str] | None = None,
+                 curated: bool = False) -> Inclusion:
     """PLAN §5 catalog policy.
 
     Movies: vote_count >= 100 OR released in the last 24 months OR in Trakt.
     Series: vote_count >= 50 OR first/last air date within 24 months OR in Trakt.
     Always: must not be adult/video; must carry an imdb_id to be *shown*.
+
+    `curated` marks a title that came from a hand-built TMDB list. Such items skip
+    the vote/recency test entirely — the human who curated the list already judged
+    it worth including, and the whole reason for using a list is that regional
+    titles sit far below the English vote floor. Adult/video and the imdb_id flag
+    still apply: a curated list can contain mistakes, and Stremio cannot render a
+    title without an imdb id.
 
     `keep_langs` widens the vote floor for non-English titles. When a crawl
     includes foreign languages (`--langs en ja ko`) those titles have a far
@@ -58,6 +66,10 @@ def should_index(payload: dict[str, Any], *, year_now: int, in_trakt: bool = Fal
     media_type = payload.get("media_type")
     if payload.get("adult") or payload.get("video"):
         return Inclusion(False, "adult_or_video")
+
+    if curated:
+        missing = None if payload.get("imdb_id") else "imdb_id"
+        return Inclusion(True, "kept_curated", missing)
 
     votes = int(payload.get("vote_count") or 0)
     threshold = SERIES_MIN_VOTES if media_type == "series" else MOVIE_MIN_VOTES

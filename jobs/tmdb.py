@@ -22,6 +22,7 @@ EXPORTS = "http://files.tmdb.org/p/exports"
 
 DEFAULT_RATE = 30.0          # req/s; TMDB's documented ceiling is ~40 req/s
 MAX_RETRIES = 5
+LIST_PAGE_SIZE = 20          # TMDB's v3 list endpoint returns 20 items per page
 DETAILS_APPEND = {
     "movie": "credits,keywords,external_ids",
     "series": "aggregate_credits,keywords,external_ids",
@@ -172,6 +173,62 @@ class TMDBClient:
                 for item in results:
                     yield item
             page += len(window)
+
+    # ------------------------------------------------------------------ lists
+    async def list_page(self, list_id: str, page: int) -> dict[str, Any]:
+        """One page of a public TMDB list. 20 items per page, plus `item_count`."""
+        return await self.get(f"/list/{list_id}", page=page)
+
+    async def fetch_list(self, list_id: str, *, page_concurrency: int = 6,
+                         max_pages: int = 500) -> list[dict[str, Any]]:
+        """Every item of a public list, deduped by (media_type, id).
+
+        Lists mix movies and series and each item carries its own `media_type`,
+        so nothing is filtered here — the caller splits them.
+
+        Page 1 is fetched alone to learn `item_count`; a 3,101-item list is 156
+        pages, so the rest are fetched in concurrent windows exactly like
+        `iter_discover`. Without that the request latency alone would dominate.
+        """
+        first = await self.list_page(list_id, 1)
+        total = int(first.get("item_count") or 0)
+        items = list(first.get("items") or [])
+        if not total or not items:
+            return []
+
+        # item_count is authoritative; trust it over "keep going until empty",
+        # which would cost an extra empty request per list. 65 items is 4 pages,
+        # not 5.
+        total_pages = min(max_pages, max(1, (total + LIST_PAGE_SIZE - 1) // LIST_PAGE_SIZE))
+        page = 2
+        while page <= total_pages and len(items) < total:
+            window = list(range(page, min(page + page_concurrency, total_pages + 1)))
+            batch = await asyncio.gather(
+                *(self.list_page(list_id, p) for p in window),
+                return_exceptions=True)
+            for data in batch:
+                if isinstance(data, BaseException):
+                    # A page lost to an error would silently truncate the list;
+                    # better to fail the run and retry than to call it done.
+                    raise data
+                for item in data.get("items") or []:
+                    items.append(item)
+            page += len(window)
+
+        # The same title can appear twice on a hand-curated list.
+        seen: set[tuple[str, int]] = set()
+        unique: list[dict[str, Any]] = []
+        for item in items:
+            tmdb_id = int(item.get("id") or 0)
+            media_type = str(item.get("media_type") or "")
+            if not tmdb_id or not media_type:
+                continue
+            key = (media_type, tmdb_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(item)
+        return unique[:total] if total else unique
 
     async def trending(self, media_type: str, window: str = "week") -> list[dict[str, Any]]:
         segment = "tv" if media_type == "series" else "movie"

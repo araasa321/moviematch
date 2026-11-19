@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -42,6 +43,9 @@ log = logging.getLogger("sync")
 # the pipeline was English-only by accident rather than by design. It is now the
 # real default for `--langs`, and any extra code enables a full extra crawl pass.
 DEFAULT_LANGS = ("en",)
+
+# Matches a TMDB watchlist URL and captures the numeric id.
+_LIST_URL_RE = re.compile(r"/list/(\d+)")
 YEAR_WINDOWS = 3          # bootstrap crawls the catalog in slices to stay resumable
 
 
@@ -82,6 +86,11 @@ class Stats:
     reembedded: int = 0
     errors: int = 0
     calls: int = 0
+    list_items: int = 0          # raw items read across every --lists source
+    list_future: int = 0         # dropped because the release month is in the future
+    list_movies: int = 0
+    list_series: int = 0
+    lists_used: int = 0
     started: float = field(default_factory=time.monotonic)
 
     def as_dict(self) -> dict[str, Any]:
@@ -89,12 +98,17 @@ class Stats:
                 "seconds": round(time.monotonic() - self.started, 1)}
 
     def line(self) -> str:
-        return (f"fetched={self.fetched} kept={self.kept} dropped={self.dropped} "
+        base = (f"fetched={self.fetched} kept={self.kept} dropped={self.dropped} "
                 f"no_imdb={self.missing_imdb} errors={self.errors} "
                 f"upserted={self.upserted} "
                 f"skipped={self.skipped_existing} payload={self.payload_updates} "
                 f"reembed={self.reembedded} calls={self.calls} "
                 f"{time.monotonic() - self.started:.1f}s")
+        if self.lists_used:
+            base += (f" lists={self.lists_used} list_items={self.list_items} "
+                     f"list_future={self.list_future} list_movies={self.list_movies} "
+                     f"list_series={self.list_series}")
+        return base
 
 
 # ---------------------------------------------------------------- helpers
@@ -118,6 +132,7 @@ async def fetch_and_build(client: TMDBClient, media_type: str,
                           dry_run: bool = False,
                           known: set[str] | None = None,
                           keep_langs: tuple[str, ...] | None = None,
+                          curated: bool = False,
                           extra: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Details -> normalize -> policy -> text. Embeddings happen in `upsert_ready`.
 
@@ -157,7 +172,7 @@ async def fetch_and_build(client: TMDBClient, media_type: str,
             payload = policy.normalize_payload(media_type, details, year_now=year_now)
             verdict = policy.should_index(payload, year_now=year_now,
                                           in_trakt=tmdb_id in trakt_ids,
-                                          keep_langs=keep_langs)
+                                          keep_langs=keep_langs, curated=curated)
         except Exception as exc:  # noqa: BLE001 - one bad title must not kill the run
             # Covers the network call AND payload normalisation: TMDB occasionally
             # returns explicit nulls for optional fields, and one malformed record
@@ -350,7 +365,87 @@ async def bootstrap(args: argparse.Namespace) -> Stats:
                                        dry_run=args.dry_run)
                     done.update(point_id(r["payload"]["media_type"], r["payload"]["tmdb_id"])
                                 for r in ready)
+
+        # ---- curated TMDB lists (supplement, not replace) --------------------
+        # Runs after the discover crawl so the crawl's newest-first benefit is
+        # kept, and so `done` already holds everything the crawl stored: any list
+        # item already present costs zero details calls.
+        await _ingest_lists(client, qdrant, embedder, args, stats, done, year_now)
     return stats
+
+
+async def _ingest_lists(client: TMDBClient, qdrant: QdrantClient, embedder: Embedder,
+                        args: argparse.Namespace, stats: Stats, done: set[str],
+                        year_now: int) -> None:
+    """Ingest every `--lists` source, splitting each list by media type.
+
+    A list mixes movies and series and each item declares its own `media_type`
+    (`"tv"` on TMDB's side, `"series"` here), so lists are the one input that does
+    NOT obey `--types`.
+
+    List items bypass the vote floor (`curated=True`): the curator already judged
+    them worth having, and the point of a list is to reach regional titles that
+    sit far below the English vote threshold.
+    """
+    list_ids: list[str] = getattr(args, "lists", None) or []
+    if not list_ids:
+        return
+
+    now = datetime.now(timezone.utc)
+    today = (now.year, now.month)
+    for list_id in list_ids:
+        try:
+            items = await client.fetch_list(list_id)
+        except Exception as exc:  # noqa: BLE001 - one bad list must not kill the run
+            stats.errors += 1
+            log.warning("list %s could not be read: %s: %s", list_id,
+                        type(exc).__name__, exc)
+            continue
+        stats.lists_used += 1
+        stats.list_items += len(items)
+
+        usable: list[dict[str, Any]] = []
+        for item in items:
+            if is_not_future(item, today):
+                usable.append(item)
+            else:
+                stats.list_future += 1
+
+        by_type: dict[str, list[dict[str, Any]]] = {"movie": [], "series": []}
+        for item in usable:
+            media_type = _normalise_media_type(item.get("media_type"))
+            if media_type is not None:
+                by_type[media_type].append(item)
+        stats.list_movies += len(by_type["movie"])
+        stats.list_series += len(by_type["series"])
+
+        log.info("list %s: %s items (%s movie, %s series, %s future-dated skipped)",
+                 list_id, len(items), len(by_type["movie"]), len(by_type["series"]),
+                 len(items) - len(usable))
+
+        for media_type in ("movie", "series"):
+            candidates = by_type[media_type]
+            if not candidates:
+                continue
+            ready = await fetch_and_build(client, media_type, candidates,
+                                          year_now=year_now, stats=stats,
+                                          known=done, curated=True,
+                                          dry_run=args.dry_run)
+            await upsert_ready(qdrant, embedder, ready, stats, existing=done,
+                               dry_run=args.dry_run)
+            done.update(point_id(r["payload"]["media_type"], r["payload"]["tmdb_id"])
+                        for r in ready)
+            log.info("after list %s [%s]: %s", list_id, media_type, stats.line())
+
+
+def _normalise_media_type(value: Any) -> str | None:
+    """TMDB list items say `movie` or `tv`; this codebase says `series`."""
+    text = str(value or "").strip().lower()
+    if text == "movie":
+        return "movie"
+    if text in ("tv", "series"):
+        return "series"
+    return None
 
 
 def _vote_threshold(media_type: str, lang: str, multi_lang: bool) -> int:
@@ -365,6 +460,69 @@ def _vote_threshold(media_type: str, lang: str, multi_lang: bool) -> int:
     if media_type == "series":
         return policy.FOREIGN_SERIES_MIN_VOTES if foreign else policy.SERIES_MIN_VOTES
     return policy.FOREIGN_MOVIE_MIN_VOTES if foreign else policy.MOVIE_MIN_VOTES
+
+
+def parse_list_ids(values: Sequence[str]) -> list[str]:
+    """Turn `--lists` input into list ids.
+
+    Accepts anything a user is likely to paste, because making them strip URLs by
+    hand is a needless way to get this wrong:
+
+        8717522
+        https://www.themoviedb.org/list/8717522-malayalam
+        8717528,8717534
+
+    Raises ValueError naming the offending token rather than silently ignoring it
+    (a typo'd list would otherwise look like "the list was empty").
+    """
+    ids: list[str] = []
+    bad: list[str] = []
+    for raw in values:
+        for token in str(raw).replace(",", " ").split():
+            token = token.strip().rstrip("/")
+            match = _LIST_URL_RE.search(token)
+            candidate = match.group(1) if match else token
+            if candidate.isdigit():
+                if candidate not in ids:
+                    ids.append(candidate)
+            else:
+                bad.append(token)
+    if bad:
+        raise ValueError(
+            "could not read these as TMDB list ids or urls: " + ", ".join(bad))
+    return ids
+
+
+def parse_month(value: Any) -> tuple[int, int] | None:
+    """`"2025-12-05"` -> `(2025, 12)`; None when the date is missing or unusable."""
+    text = str(value or "")[:7]
+    if len(text) < 7 or text[4] != "-":
+        return None
+    year, _, month = text.partition("-")
+    if not (year.isdigit() and month.isdigit()):
+        return None
+    month_num = int(month)
+    if not 1 <= month_num <= 12:
+        return None
+    return int(year), month_num
+
+
+def is_not_future(item: dict[str, Any], today: tuple[int, int]) -> bool:
+    """Has this list item already been released?
+
+    TMDB lists are full of announced titles (`release_date` years out) and
+    zero-vote placeholders would otherwise flood the catalog. Comparison is by
+    (year, month), so anything dated this month or earlier counts as released.
+
+    A missing date is KEPT: TMDB often has no date for very old or obscure
+    entries, and silently dropping those would defeat the point of using a
+    hand-curated list.
+    """
+    date = item.get("release_date") or item.get("first_air_date")
+    parsed = parse_month(date)
+    if parsed is None:
+        return True
+    return parsed <= today
 
 
 def bootstrap_years(args: argparse.Namespace) -> list[int]:
@@ -489,6 +647,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         help="original-language slices to crawl, e.g. --langs en ja ko. "
                              "English is crawled first; every extra language adds a "
                              "full crawl pass and uses the lower foreign vote floor.")
+    parser.add_argument("--lists", nargs="+", default=None, metavar="ID_OR_URL",
+                        help="TMDB list ids or full URLs to ingest in addition to the "
+                             "crawl, e.g. --lists 8717522 "
+                             "https://www.themoviedb.org/list/8717528-korean . "
+                             "Items bypass the vote floor and ignore --types (each "
+                             "list item declares its own movie/series type).")
     parser.add_argument("--limit", type=int, default=None,
                         help="stop after N upserted points (smoke runs)")
     parser.add_argument("--new-cap", type=int, default=3000,
@@ -529,6 +693,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                              "the built-in fixture catalog; no TMDB, Qdrant or model access")
     parser.add_argument("--stats-out", default=None, help="write run stats as JSON")
     args = parser.parse_args(argv)
+    # Normalise here so a typo'd list id fails before any network work begins.
+    if args.lists:
+        try:
+            args.lists = parse_list_ids(args.lists)
+        except ValueError as exc:
+            parser.error(str(exc))
+        if not args.lists:
+            parser.error("--lists was given but contained no list ids")
     args.tmdb_token = os.environ.get("TMDB_TOKEN") or os.environ.get("TMDB_API_KEY") or ""
     args.qdrant_url = os.environ.get("QDRANT_URL", "")
     args.qdrant_key = os.environ.get("QDRANT_API_KEY", "")
