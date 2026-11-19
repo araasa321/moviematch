@@ -14,8 +14,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from addon.config import (DEFAULT_LAYOUT, SUPPORTED_LANG_CODES, Config,
-                          ConfigError)
+from addon.config import DEFAULT_LAYOUT, Config, ConfigError
 from addon.main import make_app
 from addon.stremio import build_manifest, split_row_id
 
@@ -159,13 +158,18 @@ def test_configure_page_renders_real_controls(client):
     body = page.text
     assert "placeholder" not in body.lower()
     assert "Languages" in body and "Row layout" in body
-    assert "Japanese" in body and "Separate rows" in body
+    assert "English" in body and "Separate rows" in body
 
 
-def test_configure_page_lists_every_supported_language(client):
+def test_configure_page_lists_every_detected_language(client):
+    """Which languages appear is decided by the catalog, not a hardcoded list.
+
+    This page is rendered from the fixture catalog with detection unavailable, so
+    the fallback set must still name its languages rather than showing raw codes.
+    """
     body = client.get("/configure").text
-    for code, name in (("ja", "Japanese"), ("ko", "Korean"), ("fr", "French")):
-        assert name in body, name
+    assert "English" in body
+    assert 'value="en"' in body
 
 
 def test_configure_json_builds_a_working_install_link(client):
@@ -196,10 +200,10 @@ def test_install_link_manifest_matches_the_choices(client):
     assert "foryou@ja" in ids and "foryou@en" in ids
 
 
-def test_configure_json_rejects_unsupported_language(client):
-    data = client.get("/configure.json", params=[("langs", "xx")]).json()
+def test_configure_json_rejects_malformed_language_code(client):
+    """Shape is validated even though the catalog decides what exists."""
+    data = client.get("/configure.json", params=[("langs", "xx!!")]).json()
     assert data["ok"] is False
-    assert "Unsupported" in data["error"]
 
 
 def test_configure_json_requires_a_language(client):
@@ -215,6 +219,7 @@ def test_configure_json_rejects_bad_layout(client):
 
 
 def test_configure_warns_when_foreign_languages_chosen(client):
+    """With detection unavailable, a foreign pick must still warn."""
     data = client.get("/configure.json", params=[("langs", "en"), ("langs", "ja")]).json()
     assert data["warning"], "user must be told foreign titles need a crawl"
 
@@ -222,11 +227,6 @@ def test_configure_warns_when_foreign_languages_chosen(client):
 def test_configure_english_only_has_no_warning(client):
     data = client.get("/configure.json", params=[("langs", "en")]).json()
     assert not data.get("warning")
-
-
-def test_unknown_language_code_is_not_in_supported_list():
-    assert "xx" not in SUPPORTED_LANG_CODES
-    assert "en" in SUPPORTED_LANG_CODES
 
 
 # ------------------------------------------------- regressions found in a browser

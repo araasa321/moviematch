@@ -105,15 +105,21 @@
   <form id="cfg" method="get" action="#">
     <section class="card">
       <h2>Languages</h2>
-      <p class="hint">Only titles in the selected languages will appear in your rows.
-         You must have crawled these languages already, or the rows will be short.</p>
+      <p class="hint">
+        {% if detected %}
+          Detected from your catalog — the count is how many titles each language
+          currently has. Only these can appear in your rows.
+        {% else %}
+          Could not read the catalog to detect languages, so the defaults are shown.
+        {% endif %}
+      </p>
       <div class="lang-grid" id="langs">
-        {% for code, name in langs %}
-        <label class="lang{% if code in selected_langs %} checked{% endif %}">
-          <input type="checkbox" name="langs" value="{{ code }}"
-                 {% if code in selected_langs %}checked{% endif %}>
-          {{ name }}
-          <span class="code">{{ code }}</span>
+        {% for lang in langs %}
+        <label class="lang{% if lang.code in selected_langs %} checked{% endif %}">
+          <input type="checkbox" name="langs" value="{{ lang.code }}"
+                 {% if lang.code in selected_langs %}checked{% endif %}>
+          {{ lang.name }}
+          <span class="code">{% if lang.count %}{{ "{:,}".format(lang.count) }}{% else %}—{% endif %}</span>
         </label>
         {% endfor %}
       </div>

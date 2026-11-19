@@ -99,6 +99,26 @@ class QdrantClient:
                                    {"exact": True})
         return int(data.get("result", {}).get("count", 0))
 
+    async def facet(self, key: str, *, collection: str = TITLES, limit: int = 100,
+                    exact: bool = False) -> list[tuple[str, int]]:
+        """Distinct values of one payload key with counts, descending by count.
+
+        Qdrant's facet API (v1.12+) counts unique values of an INDEXED keyword
+        field in one request, so this is how the addon learns which languages
+        actually exist in the catalog instead of trusting a hardcoded list.
+        `exact=False` uses the HNSW-style approximation; counts are used for
+        ordering and rough magnitude, not for correctness decisions.
+        """
+        data = await self._request("POST", f"/collections/{collection}/facet",
+                                   {"key": key, "limit": limit, "exact": exact})
+        hits = ((data.get("result") or {}).get("hits") or [])
+        out: list[tuple[str, int]] = []
+        for hit in hits:
+            value = hit.get("value")
+            if isinstance(value, str) and value:
+                out.append((value, int(hit.get("count") or 0)))
+        return out
+
     async def get_payload(self, point_id: int | str,
                           collection: str = USER_STATE) -> dict[str, Any] | None:
         data = await self._request("POST", f"/collections/{collection}/points",

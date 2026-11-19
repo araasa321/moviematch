@@ -28,8 +28,10 @@ from fastapi.templating import Jinja2Templates
 
 from . import __version__
 from .config import (DEFAULT_LANGS, DEFAULT_LAYOUT, LANG_NAMES, SUPPORTED_LANGS,
-                     SUPPORTED_LANG_CODES, VALID_LAYOUTS, VALID_MODES, Config,
-                     ConfigError, secret_ok)
+                     VALID_LAYOUTS, VALID_MODES, Config, ConfigError, secret_ok,
+                     _LANG_CODE_RE)
+from .languages import THIN_CATALOG_TITLES, LanguageDetector
+from .languages import build_language_list as build_language_list
 from .fixtures import catalog as fixture_catalog
 from .fixtures import trakt_history
 from .library import handle_library_event
@@ -48,6 +50,17 @@ ROW_CACHE_SECONDS = 900          # §11.3 catalogs: 900 s
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 log = logging.getLogger(__name__)
+
+
+def _display_lang(code: str) -> str:
+    """Human name for a language code, falling back to the uppercase code.
+
+    Not every code TMDB emits is in LANG_NAMES, and the page must still be able
+    to name a language it discovered in the catalog.
+    """
+    from .languages import _display_name
+
+    return _display_name(code)
 
 
 def _public_origin(request: Any) -> str:
@@ -71,16 +84,25 @@ def _public_origin(request: Any) -> str:
 def make_app(store: Any | None = None,
              history_provider: Callable[[], dict[str, Any]] | None = None,
              dim: int = 384,
-             trakt: TraktClient | None = None) -> FastAPI:
+             trakt: TraktClient | None = None,
+             languages: Any | None = None) -> FastAPI:
     """Factory so tests and smoke runs inject data instead of calling TMDB/Trakt.
 
     When `store` is omitted and QDRANT_URL is set, serving reads the real catalog
     from Qdrant; otherwise it falls back to the bundled fixture catalog.
+
+    `languages` overrides the LanguageDetector /configure uses. When omitted it
+    faceted Qdrant if configured; with the fixture store it reports "detection
+    unavailable" and the page falls back to the defaults.
     """
     qdrant_store = QdrantStore.from_env(os.environ) if store is None else None
     store = store if store is not None else (qdrant_store or _fixture_store(dim))
     log.info("serving store: %s", "qdrant" if qdrant_store else "fixture")
     trakt = trakt or TraktClient(TraktConfig.from_env(os.environ))
+    if languages is None:
+        qdrant_cfg = QdrantConfig.from_env(os.environ)
+        languages = LanguageDetector(QdrantClient(qdrant_cfg)
+                                     if qdrant_cfg.configured else None)
     started = datetime.now(timezone.utc)
     row_cache: dict[tuple, tuple[float, RowPlan]] = {}
 
@@ -100,6 +122,8 @@ def make_app(store: Any | None = None,
     app.state.store = store
     app.state.trakt = trakt
     app.state.row_cache = row_cache
+    app.state.languages = languages
+    language_detector = languages
 
     async def current_history() -> dict[str, Any]:
         """Trakt when configured; the bundled fixture otherwise. Never raises."""
@@ -244,12 +268,20 @@ def make_app(store: Any | None = None,
         except ConfigError:
             round_trip_ok = False
         https_url, _ = _https_manifest_url(request, blob)
+        # The catalog decides which languages are offered (see addon/languages.py).
+        # Detection never raises: if it fails the page falls back to the default.
+        detected = await language_detector.languages()
+        offered_codes = {lang.code for lang in detected}
+        selected = [code for code in DEFAULT_LANGS if code in offered_codes] or list(
+            DEFAULT_LANGS)
         # starlette >= 1.0 takes `request` positionally and a context dict
         # WITHOUT a "request" key; the old (name, {"request": ...}) form raises
         # "unhashable type: 'dict'" because it reads the dict as the template name.
         return _templates().TemplateResponse(request, "configure.html", {
-            "langs": SUPPORTED_LANGS,
-            "selected_langs": set(DEFAULT_LANGS),
+            "langs": detected,
+            "detected": language_detector.available,
+            "lang_count": len(detected),
+            "selected_langs": set(selected),
             "layouts": [
                 ("merged", "Mixed",
                  "One For You row pooling every selected language. The ranking "
@@ -279,19 +311,26 @@ def make_app(store: Any | None = None,
         drift from what a real install produces.
         """
         params = request.query_params
-        chosen = [code for code in params.getlist("langs") if code]
-        unknown = [code for code in chosen if code not in SUPPORTED_LANG_CODES]
-        if unknown:
-            return JSONResponse({"ok": False,
-                                 "error": f"Unsupported language: {', '.join(unknown)}"})
+        chosen = [code.strip().lower() for code in params.getlist("langs") if code.strip()]
         if not chosen:
             return JSONResponse({"ok": False,
                                  "error": "Select at least one language."})
+        # Validate shape only; which codes are "real" is the catalog's business.
+        bad = [code for code in chosen if not _LANG_CODE_RE.fullmatch(code)]
+        if bad:
+            return JSONResponse({"ok": False,
+                                 "error": f"Invalid language code: {', '.join(bad)}"})
         layout = params.get("layout") or DEFAULT_LAYOUT
         mode = params.get("mode") or os.environ.get("MODE_DEFAULT", "blockbuster")
         if layout not in VALID_LAYOUTS or mode not in VALID_MODES:
             return JSONResponse({"ok": False, "error": "Unknown option."})
 
+        # Warn (do not block) about languages that were never crawled: the user may
+        # be configuring before the ingest run finishes, and a hard rejection here
+        # would make the page unusable during a bootstrap.
+        facets = await language_detector.facets()
+        detected = build_language_list(facets)
+        known = {lang.code: lang for lang in detected}
         try:
             config = Config.from_dict({"secret": current_secret(), "mode": mode,
                                        "langs": chosen, "layout": layout})
@@ -300,23 +339,44 @@ def make_app(store: Any | None = None,
 
         blob = config.encode()
         https_url, stremio_url = _https_manifest_url(request, blob)
-        names = ", ".join(LANG_NAMES.get(code, code) for code in config.langs)
+        names = ", ".join(known[c].name if c in known else _display_lang(c)
+                          for c in config.langs)
         layout_label = "Mixed" if config.layout == "merged" else "one row per language"
         mode_label = "Hidden gems" if config.mode == "gems" else "Blockbusters"
         summary = (f"<b>{len(config.langs)}</b> language"
                    f"{'' if len(config.langs) == 1 else 's'} ({names}) · "
                    f"<b>{layout_label}</b> · <b>{mode_label}</b>")
-        warning = ""
-        non_en = [code for code in config.langs if code != "en"]
-        if non_en:
-            # The serving side can only show what the ingest job crawled; saying so
-            # up front beats a user installing this and finding empty rows.
-            warning = ("Foreign-language titles appear only if they were crawled: "
-                       "run the bootstrap workflow with --langs covering "
-                       f"'{' '.join(config.langs)}'.")
+
+        warnings: list[str] = []
+        foreign = [c for c in config.langs if c != "en"]
+        if facets is not None:
+            # Only claim "nothing crawled" when we actually read the catalog.
+            # With detection unavailable every count is 0 and the claim would be
+            # both false and alarming.
+            missing = [c for c in config.langs if c not in known or not known[c].count]
+            if missing:
+                labels = ", ".join(_display_lang(c) for c in missing)
+                warnings.append(
+                    f"No titles crawled yet for {labels}. Run the bootstrap workflow "
+                    f"with --langs '{' '.join(config.langs)}' to fill them; until then "
+                    "those rows will be empty.")
+            thin = [c for c in config.langs
+                    if c in known and 0 < known[c].count < THIN_CATALOG_TITLES]
+            if thin:
+                labels = ", ".join(f"{_display_lang(c)} ({known[c].count:,})" for c in thin)
+                warnings.append(f"Thin catalog: {labels}. Rows may run out quickly.")
+        elif foreign:
+            # Detection unavailable AND a foreign language was chosen: we cannot
+            # verify it exists, and staying silent would let a user install
+            # foreign rows that may never fill.
+            labels = ", ".join(_display_lang(c) for c in foreign)
+            warnings.append(
+                f"Could not read the catalog to confirm {labels} was crawled. "
+                f"If those rows look empty, run the bootstrap workflow with "
+                f"--langs '{' '.join(config.langs)}'.")
         return JSONResponse({"ok": True, "https_url": https_url,
                              "stremio_url": stremio_url, "blob": blob,
-                             "summary": summary, "warning": warning})
+                             "summary": summary, "warning": " ".join(warnings)})
 
     @app.get("/{config_blob}/manifest.json")
     async def manifest(request: Request, config_blob: str) -> JSONResponse:

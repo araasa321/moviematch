@@ -17,15 +17,19 @@ import binascii
 import hashlib
 import hmac
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
+
+_LANG_CODE_RE = re.compile(r"[a-z]{2,3}(-[a-z0-9]{2,8})?")
 
 VALID_MODES = ("blockbuster", "gems")
 DEFAULT_LANGS = ("en",)
 
-# Languages the /configure form offers. Kept as an explicit list rather than
-# "any 2-letter code" so a typo cannot produce a config that silently matches
-# nothing and leaves the user staring at empty rows.
+# Display names for languages we can prettify. NOT a whitelist: the catalog is
+# the source of truth for which languages exist (see addon/languages.py), because
+# a fixed list both hid crawled languages and offered uncrawled ones. An unknown
+# code is accepted and displayed as its uppercase form.
 SUPPORTED_LANGS: tuple[tuple[str, str], ...] = (
     ("en", "English"),
     ("ja", "Japanese"),
@@ -34,20 +38,37 @@ SUPPORTED_LANGS: tuple[tuple[str, str], ...] = (
     ("hi", "Hindi"),
     ("ta", "Tamil"),
     ("te", "Telugu"),
+    ("ml", "Malayalam"),
+    ("bn", "Bengali"),
+    ("mr", "Marathi"),
+    ("pa", "Punjabi"),
+    ("ur", "Urdu"),
     ("es", "Spanish"),
     ("fr", "French"),
     ("de", "German"),
     ("it", "Italian"),
     ("pt", "Portuguese"),
     ("ru", "Russian"),
+    ("uk", "Ukrainian"),
     ("tr", "Turkish"),
     ("ar", "Arabic"),
+    ("fa", "Persian"),
+    ("he", "Hebrew"),
     ("th", "Thai"),
+    ("vi", "Vietnamese"),
     ("id", "Indonesian"),
+    ("ms", "Malay"),
+    ("tl", "Filipino"),
     ("sv", "Swedish"),
+    ("no", "Norwegian"),
     ("da", "Danish"),
+    ("fi", "Finnish"),
     ("nl", "Dutch"),
     ("pl", "Polish"),
+    ("cs", "Czech"),
+    ("hu", "Hungarian"),
+    ("ro", "Romanian"),
+    ("el", "Greek"),
 )
 SUPPORTED_LANG_CODES = tuple(code for code, _ in SUPPORTED_LANGS)
 LANG_NAMES = dict(SUPPORTED_LANGS)
@@ -93,6 +114,13 @@ class Config:
         langs = data.get("langs") or list(DEFAULT_LANGS)
         if not isinstance(langs, list) or not all(isinstance(x, str) and x for x in langs):
             raise ConfigError("langs must be a non-empty list of strings")
+        # Accept any well-formed ISO-639-1-ish code rather than a fixed whitelist:
+        # the catalog decides what exists. Reject anything that is not a plausible
+        # language tag so a corrupted URL still fails loudly.
+        cleaned = {x.strip().lower() for x in langs}
+        bad = [x for x in cleaned if not _LANG_CODE_RE.fullmatch(x)]
+        if bad:
+            raise ConfigError(f"invalid language code(s): {', '.join(sorted(bad))}")
 
         layout = str(data.get("layout") or DEFAULT_LAYOUT).strip().lower()
         if layout not in VALID_LAYOUTS:
@@ -103,7 +131,7 @@ class Config:
         except (TypeError, ValueError) as exc:
             raise ConfigError("gems must be a number between 0 and 1") from exc
 
-        norm_langs = tuple(sorted({x.strip().lower() for x in langs}))
+        norm_langs = tuple(sorted(cleaned))
         return cls(
             secret=str(data.get("secret") or ""),
             mode=mode,
