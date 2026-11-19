@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MovieMatch — Configure</title>
+<style>
+  :root {
+    --bg: #0b0d17;
+    --card: #151827;
+    --card-2: #1c2033;
+    --line: #2a2f47;
+    --text: #eef0f8;
+    --muted: #9aa1bd;
+    --accent: #7b6cff;
+    --accent-2: #a394ff;
+    --ok: #3ddc97;
+    --warn: #ffb84d;
+    --err: #ff6b81;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px 64px;
+    background: radial-gradient(1200px 600px at 50% -10%, #1b1f3a 0%, var(--bg) 60%);
+    color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 28px; }
+  header h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.4px; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 22px; margin-bottom: 16px;
+  }
+  .card h2 {
+    margin: 0 0 4px; font-size: 15px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.8px; color: var(--accent-2);
+  }
+  .card .hint { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+
+  .lang-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px;
+  }
+  .lang {
+    display: flex; align-items: center; gap: 9px;
+    padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--card-2); cursor: pointer; user-select: none;
+    transition: border-color .15s, background .15s;
+  }
+  .lang:hover { border-color: #3d4468; }
+  .lang input { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
+  .lang.checked { border-color: var(--accent); background: #232043; }
+  .lang .code { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+  .options { display: grid; gap: 10px; }
+  .opt {
+    display: flex; gap: 11px; align-items: flex-start;
+    padding: 13px 15px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card-2); cursor: pointer;
+  }
+  .opt:hover { border-color: #3d4468; }
+  .opt input { margin-top: 2px; accent-color: var(--accent); width: 16px; height: 16px; }
+  .opt.selected { border-color: var(--accent); background: #232043; }
+  .opt strong { display: block; font-size: 14px; }
+  .opt span { color: var(--muted); font-size: 13px; }
+
+  .install {
+    display: block; text-align: center; text-decoration: none;
+    padding: 15px; border-radius: 11px; font-weight: 650; font-size: 16px;
+    background: linear-gradient(135deg, var(--accent), #5b4bd6);
+    color: #fff; border: none; transition: transform .12s, box-shadow .12s;
+  }
+  .install:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(123,108,255,.35); }
+  .install[aria-disabled="true"] {
+    background: var(--card-2); color: var(--muted); cursor: not-allowed;
+    transform: none; box-shadow: none; border: 1px dashed var(--line);
+  }
+  .url {
+    margin-top: 12px; padding: 10px 12px; background: #0e1120;
+    border: 1px solid var(--line); border-radius: 8px;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted); word-break: break-all;
+  }
+  .msg { margin-top: 12px; font-size: 13px; }
+  .msg.err { color: var(--err); }
+  .msg.warn { color: var(--warn); }
+  .footer { text-align: center; color: #6b7291; font-size: 12px; margin-top: 26px; }
+  .footer a {
+    color: #8d94b5; word-break: break-all; display: inline-block; max-width: 100%;
+  }
+  .summary { font-size: 13px; color: var(--muted); margin-top: 14px; }
+  .summary b { color: var(--text); }
+  .wrap { overflow-x: hidden; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>MovieMatch</h1>
+    <p>Personalised recommendations from your Trakt history.</p>
+  </header>
+
+  <form id="cfg" method="get" action="#">
+    <section class="card">
+      <h2>Languages</h2>
+      <p class="hint">Only titles in the selected languages will appear in your rows.
+         You must have crawled these languages already, or the rows will be short.</p>
+      <div class="lang-grid" id="langs">
+        {% for code, name in langs %}
+        <label class="lang{% if code in selected_langs %} checked{% endif %}">
+          <input type="checkbox" name="langs" value="{{ code }}"
+                 {% if code in selected_langs %}checked{% endif %}>
+          {{ name }}
+          <span class="code">{{ code }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="msg" id="lang-msg"></div>
+    </section>
+
+    <section class="card">
+      <h2>Row layout</h2>
+      <p class="hint">How your chosen languages show up in Stremio.</p>
+      <div class="options" id="layouts">
+        {% for value, title, desc in layouts %}
+        <label class="opt{% if value == selected_layout %} selected{% endif %}">
+          <input type="radio" name="layout" value="{{ value }}"
+                 {% if value == selected_layout %}checked{% endif %}>
+          <div><strong>{{ title }}</strong><span>{{ desc }}</span></div>
+        </label>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Ranking style</h2>
+      <p class="hint">What the For You row favours.</p>
+      <div class="options" id="modes">
+        {% for value, title, desc in modes %}
+        <label class="opt{% if value == selected_mode %} selected{% endif %}">
+          <input type="radio" name="mode" value="{{ value }}"
+                 {% if value == selected_mode %}checked{% endif %}>
+          <div><strong>{{ title }}</strong><span>{{ desc }}</span></div>
+        </label>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Install</h2>
+      <a class="install" id="install" href="#" aria-disabled="true">Open / install in Stremio</a>
+      <div class="url" id="url"></div>
+      <div class="summary" id="summary"></div>
+      <div class="msg" id="warn"></div>
+    </section>
+  </form>
+
+  <div class="footer">
+    <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+    <p><a href="{{ https_url_base }}" id="manifest-link">{{ https_url_base }}</a></p>
+    <p style="opacity:.65">config round-trip: {{ 'OK' if round_trip_ok else 'FAILED' }}
+      · origin: {{ origin }}</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  // The server is the source of truth for how a config is encoded: every change
+  // POSTs the form back and swaps in the returned install link. Re-deriving the
+  // blob in JS would mean two encoders that can silently disagree.
+  var form = document.getElementById('cfg');
+  var install = document.getElementById('install');
+  var urlBox = document.getElementById('url');
+  var summary = document.getElementById('summary');
+  var warn = document.getElementById('warn');
+  var langMsg = document.getElementById('lang-msg');
+  var endpoint = {{ update_url | tojson }};
+  var baseHttps = {{ https_url_base | tojson }};
+
+  function paint() {
+    document.querySelectorAll('.lang').forEach(function (el) {
+      var cb = el.querySelector('input');
+      el.classList.toggle('checked', cb.checked);
+    });
+    document.querySelectorAll('#layouts .opt, #modes .opt').forEach(function (el) {
+      var input = el.querySelector('input');
+      el.classList.toggle('selected', input.checked);
+    });
+  }
+
+  function selectedLangs() {
+    return Array.prototype.slice
+      .call(form.querySelectorAll('input[name="langs"]:checked'))
+      .map(function (i) { return i.value; });
+  }
+
+  function update() {
+    paint();
+    var params = new URLSearchParams();
+    selectedLangs().forEach(function (l) { params.append('langs', l); });
+    var layout = form.querySelector('input[name="layout"]:checked');
+    var mode = form.querySelector('input[name="mode"]:checked');
+    if (layout) { params.append('layout', layout.value); }
+    if (mode) { params.append('mode', mode.value); }
+
+    fetch(endpoint + '?' + params.toString(), { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          langMsg.textContent = data.error || 'Configuration rejected.';
+          langMsg.className = 'msg err';
+          install.setAttribute('aria-disabled', 'true');
+          install.setAttribute('href', '#');
+          urlBox.textContent = '';
+          summary.innerHTML = '';
+          warn.textContent = '';
+          return;
+        }
+        langMsg.textContent = '';
+        langMsg.className = 'msg';
+        install.setAttribute('href', data.stremio_url);
+        install.removeAttribute('aria-disabled');
+        urlBox.textContent = data.https_url;
+        summary.innerHTML = data.summary;
+        warn.textContent = data.warning || '';
+        warn.className = 'msg warn';
+      })
+      .catch(function () {
+        langMsg.textContent = 'Could not reach the server to build the link.';
+        langMsg.className = 'msg err';
+      });
+  }
+
+  form.addEventListener('change', update);
+  form.addEventListener('submit', function (e) { e.preventDefault(); update(); });
+  update();
+})();
+</script>
+</body>
+</html>

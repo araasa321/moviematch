@@ -208,7 +208,8 @@ def _matches_genre(payload: dict[str, Any], wanted: str) -> bool:
 
 def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
               config: Config | None = None, *, now: datetime | None = None,
-              year_now: int | None = None, genre: str | None = None) -> RowPlan:
+              year_now: int | None = None, genre: str | None = None,
+              lang: str | None = None) -> RowPlan:
     config = config or Config()
     now = now or datetime.now(timezone.utc)
     year_now = year_now or now.year
@@ -218,6 +219,19 @@ def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
     excluded: set[str] = set(state.watched) | set(state.hidden)
     if row != "tonight":
         excluded |= state.watchlist
+
+    # A per-language row (`foryou@ja`) narrows the *request* to that language, but
+    # it must never widen it past what the user allowed: if the config no longer
+    # lists the language, the row renders empty rather than leaking titles the
+    # user switched off.
+    row_langs: tuple[str, ...] = config.langs
+    if lang:
+        if lang in config.langs:
+            row_langs = (lang,)
+        else:
+            return RowPlan([], taste, count_positive_signals(state), excluded,
+                           {"reason": "lang_not_enabled", "lang": lang,
+                            "row": row, "media_type": media_type})
 
     seed_title = because_seed(store, state, media_type) if row == "because" else None
     ann_limit = 200
@@ -235,7 +249,7 @@ def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
             return RowPlan([], taste, count_positive_signals(state), excluded, {"reason": "cold_start"})
         query = taste.query
 
-    pool = _candidate_pool(store, query, media_type=media_type, langs=config.langs,
+    pool = _candidate_pool(store, query, media_type=media_type, langs=row_langs,
                            excluded=excluded, year_now=year_now, ann_limit=ann_limit,
                            genre=genre)
 
@@ -260,7 +274,11 @@ def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
         seed_director=seed_director,
         seed_cast=seed_cast,
         disliked=taste.dislikes,
-        langs=config.langs,
+        # `row_langs` (not config.langs) so a per-language row applies the
+        # language mismatch penalty against its OWN language — every candidate
+        # already matches, so the penalty is uniformly zero and does not
+        # re-order the row by accident.
+        langs=row_langs,
         year_now=year_now,
         limit=200,
         ann_limit=ann_limit,

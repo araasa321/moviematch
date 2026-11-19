@@ -7,6 +7,8 @@ import re
 from typing import Any
 from urllib.parse import unquote_plus
 
+from .config import LANG_NAMES
+
 ADDON_ID = "community.moviematch.personal"
 VERSION = "0.1.0"
 PAGE_SIZE = 15
@@ -21,6 +23,17 @@ CATALOGS: dict[str, tuple[str, bool]] = {
 # M6 adds tonight / trending / gems (PLAN §10.3)
 
 GENRE_OPTIONS = ["Action", "Comedy", "Drama", "Sci-Fi", "Thriller", "Horror", "Romance", "Animation"]
+
+# A per-language catalog id looks like "foryou@ja". Keeping the base id as a
+# prefix means the router and the row builder can split on the last "@" and
+# still find the real row, and ids stay stable for a given language.
+LANG_SEPARATOR = "@"
+
+
+def split_row_id(catalog_id: str) -> tuple[str, str | None]:
+    """`"foryou@ja"` -> `("foryou", "ja")`; `"foryou"` -> `("foryou", None)`."""
+    base, sep, lang = catalog_id.partition(LANG_SEPARATOR)
+    return base, (lang or None) if sep else None
 
 _EXTRA_RE = re.compile(r"^(?P<key>[a-zA-Z0-9_.]+)=(?P<value>.*)$")
 
@@ -49,15 +62,34 @@ def safe_skip(extra: dict[str, str]) -> int:
         return 0
 
 
-def build_manifest(base_url: str, config_blob: str, seeds: dict[str, str] | None = None) -> dict[str, Any]:
-    """Manifest with rows for both types; `because` names are filled from Trakt (§10.2)."""
+def build_manifest(base_url: str, config_blob: str, seeds: dict[str, str] | None = None,
+                   *, langs: Sequence[str] = ("en",),
+                   layout: str = "merged") -> dict[str, Any]:
+    """Manifest with rows for both types; `because` names are filled from Trakt (§10.2).
+
+    `layout` decides how the chosen languages are presented:
+
+    * ``merged``   — one row per catalog id, pooling every language. The ranking
+      decides what wins, so a great Korean film can outrank a weak English one.
+    * ``separate`` — the same rows repeated once per language (``foryou@ja``),
+      each row filtered to that language.
+
+    A single language always renders as ``merged``: one language's "separate" row
+    set would be byte-for-byte the merged set under a uglier name.
+    """
     seeds = seeds or {}
+    lang_list = tuple(langs or ("en",))
+    per_lang = layout == "separate" and len(lang_list) > 1
     catalogs: list[dict[str, Any]] = []
-    for catalog_id, (label, dynamic) in CATALOGS.items():
+
+    def add(catalog_id: str, label: str, dynamic: bool, lang: str | None) -> None:
         for media_type in ("movie", "series"):
             name = label.format(seed=seeds.get(media_type, "—")) if dynamic else label
             if media_type == "series" and not dynamic:
                 name = f"{name} (Series)"
+            if lang and per_lang:
+                tag = LANG_NAMES.get(lang, lang.upper())
+                name = f"{name} · {tag}"
             entry: dict[str, Any] = {"type": media_type, "id": catalog_id, "name": name}
             extra: list[dict[str, Any]] = [{"name": "skip"}]
             # Genre filtering applies to every ranked row (For You / Because /
@@ -66,6 +98,13 @@ def build_manifest(base_url: str, config_blob: str, seeds: dict[str, str] | None
             extra.append({"name": "genre", "options": GENRE_OPTIONS, "isRequired": False})
             entry["extra"] = extra
             catalogs.append(entry)
+
+    for catalog_id, (label, dynamic) in CATALOGS.items():
+        if per_lang:
+            for lang in lang_list:
+                add(f"{catalog_id}{LANG_SEPARATOR}{lang}", label, dynamic, lang)
+        else:
+            add(catalog_id, label, dynamic, None)
 
     return {
         "id": ADDON_ID,

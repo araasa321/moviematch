@@ -4,7 +4,8 @@
     GET /{config}/catalog/{type}/{id}.json
     GET /{config}/catalog/{type}/{id}/{extra}.json     extra = "skip=100&genre=Sci-Fi"
     GET /health
-    GET /configure                                     (M4 builds the real page)
+    GET /configure                                     custom config page (M4)
+    GET /configure.json                                install-link builder for that page
 
 Run locally against the fixture catalog:
     uvicorn addon.main:app --reload --port 8000
@@ -23,9 +24,12 @@ import numpy as np
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 
 from . import __version__
-from .config import Config, ConfigError, secret_ok
+from .config import (DEFAULT_LANGS, DEFAULT_LAYOUT, LANG_NAMES, SUPPORTED_LANGS,
+                     SUPPORTED_LANG_CODES, VALID_LAYOUTS, VALID_MODES, Config,
+                     ConfigError, secret_ok)
 from .fixtures import catalog as fixture_catalog
 from .fixtures import trakt_history
 from .library import handle_library_event
@@ -33,13 +37,15 @@ from .memory_store import MemoryStore, load_records_from_json
 from .qdrant import QdrantClient, QdrantConfig
 from .rows import RowPlan, build_row, build_user_state, to_metas
 from .store import QdrantStore
-from .stremio import PAGE_SIZE, build_manifest, catalog_response, parse_extra, safe_skip
+from .stremio import (PAGE_SIZE, build_manifest, catalog_response, parse_extra,
+                      safe_skip, split_row_id)
 from .trakt import TraktClient, TraktConfig
 
 VALID_ROWS = {"foryou", "because", "new4you"}
 VALID_TYPES = {"movie", "series"}
 DEV_SECRET = "dev-secret-please-set-INSTALL_SECRET"
 ROW_CACHE_SECONDS = 900          # §11.3 catalogs: 900 s
+_TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 log = logging.getLogger(__name__)
 
@@ -198,6 +204,36 @@ def make_app(store: Any | None = None,
         return FileResponse(path, media_type="image/png",
                             headers={"Cache-Control": "public, max-age=86400"})
 
+    # ------------------------------------------------------------- /configure
+    # PLAN §10.1/M4: the real configuration page. Per the Stremio docs
+    # (stremio-addon-sdk/docs/advanced.md, "Creating Addon Configuration Pages")
+    # a custom page must embed the user's choices in the addon repository URL and
+    # offer a `stremio://host/<blob>/manifest.json` install link. That is exactly
+    # what /configure and /configure.json below produce.
+    def _templates() -> Jinja2Templates:
+        return Jinja2Templates(directory=str(_TEMPLATE_DIR))
+
+    def _https_manifest_url(request: Request, blob: str) -> tuple[str, str]:
+        """Return (https manifest URL, stremio deep link) for a config blob."""
+        origin = base_url(request)
+        https_url = f"{origin}/{blob}/manifest.json"
+        # Stremio refuses plain http; Koyeb terminates TLS and forwards the
+        # public scheme, but a local run still says http://, so upgrade it.
+        if not https_url.startswith("https://"):
+            https_url = https_url.replace("http://", "https://", 1)
+        return https_url, "stremio://" + https_url[len("https://"):]
+
+    def _self_endpoint(request: Request, path: str) -> str:
+        """URL the *page itself* should call back on.
+
+        Must NOT be upgraded to https: this is a same-origin browser request, so
+        it has to use the scheme the page was actually served over. Using the
+        https-upgraded origin made every fetch fail with ERR_SSL_PROTOCOL_ERROR
+        whenever TLS is terminated in front of the app (local runs, and any proxy
+        that does not serve https directly).
+        """
+        return f"{str(request.base_url).rstrip('/')}{path}"
+
     @app.get("/configure")
     async def configure(request: Request) -> HTMLResponse:
         blob = Config(secret=current_secret(),
@@ -207,21 +243,80 @@ def make_app(store: Any | None = None,
             round_trip_ok = Config.decode(blob).secret == current_secret()
         except ConfigError:
             round_trip_ok = False
-        origin = base_url(request)
-        https_url = f"{origin}/{blob}/manifest.json"
-        https_url = https_url if https_url.startswith("https://") else https_url.replace(
-            "http://", "https://", 1)
-        stremio_url = https_url[len("https://"):]
-        return HTMLResponse(
-            "<h1>MovieMatch</h1>"
-            "<p>Minimal /configure placeholder — the real page lands in M4.</p>"
-            f'<p><a href="stremio://{stremio_url}"><b>Install in Stremio</b></a></p>'
-            f'<p>Or open: <a href="{https_url}">{https_url}</a></p>'
-            f"<p style='font-size:12px'>config round-trip: "
-            f"{'OK' if round_trip_ok else 'FAILED'} · origin seen by app: {origin}</p>"
-            '<p style="font-size:12px">This product uses the TMDB API but is not '
-            "endorsed or certified by TMDB.</p>"
-        )
+        https_url, _ = _https_manifest_url(request, blob)
+        # starlette >= 1.0 takes `request` positionally and a context dict
+        # WITHOUT a "request" key; the old (name, {"request": ...}) form raises
+        # "unhashable type: 'dict'" because it reads the dict as the template name.
+        return _templates().TemplateResponse(request, "configure.html", {
+            "langs": SUPPORTED_LANGS,
+            "selected_langs": set(DEFAULT_LANGS),
+            "layouts": [
+                ("merged", "Mixed",
+                 "One For You row pooling every selected language. The ranking "
+                 "decides what is good, so a strong foreign title can beat a weak "
+                 "English one."),
+                ("separate", "Separate rows",
+                 "Each row repeated per language. One language behaves like Mixed."),
+            ],
+            "selected_layout": DEFAULT_LAYOUT,
+            "modes": [
+                ("blockbuster", "Blockbusters", "Favour widely known, high-vote titles."),
+                ("gems", "Hidden gems", "Favour well-rated titles with fewer votes."),
+            ],
+            "selected_mode": os.environ.get("MODE_DEFAULT", "blockbuster"),
+            "update_url": _self_endpoint(request, "/configure.json"),
+            "https_url_base": https_url,
+            "origin": base_url(request),
+            "round_trip_ok": round_trip_ok,
+        })
+
+    @app.get("/configure.json")
+    async def configure_json(request: Request) -> JSONResponse:
+        """Build the install link for the choices in the query string.
+
+        The page calls this on every change rather than encoding the config in
+        JavaScript: one encoder (addon.config.Config) means the preview can never
+        drift from what a real install produces.
+        """
+        params = request.query_params
+        chosen = [code for code in params.getlist("langs") if code]
+        unknown = [code for code in chosen if code not in SUPPORTED_LANG_CODES]
+        if unknown:
+            return JSONResponse({"ok": False,
+                                 "error": f"Unsupported language: {', '.join(unknown)}"})
+        if not chosen:
+            return JSONResponse({"ok": False,
+                                 "error": "Select at least one language."})
+        layout = params.get("layout") or DEFAULT_LAYOUT
+        mode = params.get("mode") or os.environ.get("MODE_DEFAULT", "blockbuster")
+        if layout not in VALID_LAYOUTS or mode not in VALID_MODES:
+            return JSONResponse({"ok": False, "error": "Unknown option."})
+
+        try:
+            config = Config.from_dict({"secret": current_secret(), "mode": mode,
+                                       "langs": chosen, "layout": layout})
+        except ConfigError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)})
+
+        blob = config.encode()
+        https_url, stremio_url = _https_manifest_url(request, blob)
+        names = ", ".join(LANG_NAMES.get(code, code) for code in config.langs)
+        layout_label = "Mixed" if config.layout == "merged" else "one row per language"
+        mode_label = "Hidden gems" if config.mode == "gems" else "Blockbusters"
+        summary = (f"<b>{len(config.langs)}</b> language"
+                   f"{'' if len(config.langs) == 1 else 's'} ({names}) · "
+                   f"<b>{layout_label}</b> · <b>{mode_label}</b>")
+        warning = ""
+        non_en = [code for code in config.langs if code != "en"]
+        if non_en:
+            # The serving side can only show what the ingest job crawled; saying so
+            # up front beats a user installing this and finding empty rows.
+            warning = ("Foreign-language titles appear only if they were crawled: "
+                       "run the bootstrap workflow with --langs covering "
+                       f"'{' '.join(config.langs)}'.")
+        return JSONResponse({"ok": True, "https_url": https_url,
+                             "stremio_url": stremio_url, "blob": blob,
+                             "summary": summary, "warning": warning})
 
     @app.get("/{config_blob}/manifest.json")
     async def manifest(request: Request, config_blob: str) -> JSONResponse:
@@ -230,7 +325,8 @@ def make_app(store: Any | None = None,
             return error
         history = await current_history()
         seeds = _seed_names(store, history, config)
-        payload = build_manifest(base_url(request), config_blob, seeds)
+        payload = build_manifest(base_url(request), config_blob, seeds,
+                                 langs=config.langs, layout=config.layout)
         return JSONResponse(payload, headers={"Cache-Control": "max-age=300"})
 
     @app.get("/{config_blob}/catalog/{media_type}/{row}/{extra}.json")
@@ -247,15 +343,17 @@ def make_app(store: Any | None = None,
         config, error = load_config(config_blob)
         if error is not None:
             return error
-        if media_type not in VALID_TYPES or row not in VALID_ROWS:
+        base_row, lang = split_row_id(row)
+        if media_type not in VALID_TYPES or base_row not in VALID_ROWS:
             return JSONResponse({"metas": []}, status_code=404)
-        plan = await _cached_plan(config, media_type, row, extra.get("genre", ""))
+        plan = await _cached_plan(config, media_type, base_row,
+                                  extra.get("genre", ""), lang or "")
         metas = to_metas(plan.ranked, skip=safe_skip(extra), limit=PAGE_SIZE)
         return JSONResponse(catalog_response(metas), headers={"Cache-Control": "max-age=900"})
 
     async def _cached_plan(config: Config, media_type: str, row: str,
-                           genre: str = "") -> RowPlan:
-        """Rank once per (row, type, mode, genre) and reuse for ~15 min (§11.3).
+                           genre: str = "", lang: str = "") -> RowPlan:
+        """Rank once per (row, type, mode, genre, lang) and reuse for ~15 min (§11.3).
 
         Ranking 70k titles on every Stremio request would blow the client's ~10 s
         timeout on a cold Koyeb instance; the cache makes only the FIRST request
@@ -263,14 +361,18 @@ def make_app(store: Any | None = None,
 
         `genre` MUST be part of the key: it was originally omitted, so the first
         genre a user picked was cached and served for every other genre too.
+        `lang` belongs in the key for the same reason — otherwise the merged row
+        and every per-language row would collide on one cache entry.
         """
-        key = (row, media_type, config.mode, (genre or "").strip().casefold())
+        key = (row, media_type, config.mode, (genre or "").strip().casefold(),
+               (lang or "").strip().casefold())
         now = time.monotonic()
         cached = row_cache.get(key)
         if cached and now - cached[0] < ROW_CACHE_SECONDS:
             return cached[1]
         history = await current_history()
-        plan = build_row(store, history, media_type, row, config, genre=genre or None)
+        plan = build_row(store, history, media_type, row, config,
+                         genre=genre or None, lang=lang or None)
         # a transient failure must not be cached for 15 minutes
         if plan.ranked:
             row_cache[key] = (now, plan)
