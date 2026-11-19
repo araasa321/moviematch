@@ -1,13 +1,16 @@
-name: nightly-sync
+name: daily-sync
 
+# Adds new titles and catches same-week releases. Deliberately small: the heavy
+# popularity sweep and vote/bayes recompute live in refresh.yml (Sundays) because
+# on a ~43k-point catalog they cannot finish inside a practical timeout.
 on:
   schedule: [{cron: "15 9 * * *"}]   # after TMDB's ~08:00 UTC export (PLAN §6.4)
   workflow_dispatch:
     inputs:
-      langs:
-        description: "ISO-639-1 codes (space separated). Blank = 'en'."
+      recent_days:
+        description: "Also pick up titles released in the last N days (0 disables)"
         required: false
-        default: "en"
+        default: "3"
 
 jobs:
   sync:
@@ -22,11 +25,12 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-minilm-v1
       - run: pip install -r jobs/requirements.txt
-      - name: nightly sync
+      - name: daily sync
         run: |
-          LANGS="${{ inputs.langs }}"
-          if [ -z "$LANGS" ]; then LANGS="en"; fi
-          python jobs/sync_tmdb.py --mode nightly --langs $LANGS --stats-out sync-stats.json
+          DAYS="${{ inputs.recent_days }}"
+          if [ -z "$DAYS" ]; then DAYS="3"; fi
+          python jobs/sync_tmdb.py --mode daily --recent-days "$DAYS" \
+            --stats-out sync-stats.json
         env:
           TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
           QDRANT_URL: ${{ secrets.QDRANT_URL }}
@@ -34,6 +38,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: nightly-stats
+          name: daily-stats
           path: sync-stats.json
           if-no-files-found: ignore

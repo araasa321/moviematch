@@ -159,6 +159,36 @@ class IngestQdrant:
                             {"payload": payload, "points": ids_list},
                             params={"wait": "false"})
 
+    async def set_payload_batch(self, updates: Iterable[tuple[dict[str, Any], list[str]]],
+                                *, name: str = TITLES, chunk: int = 500) -> int:
+        """Apply DIFFERENT payloads to DIFFERENT points, chunked.
+
+        `set_payload` sends one payload to many ids, which only helps when the
+        values are identical. Score refreshes are per-title (each bayes value is
+        unique), so the previous one-request-per-point loop dominated the whole
+        nightly run: ~43k round trips at ~370 ms each.
+
+        Qdrant's batch endpoint takes a list of operations, so many distinct
+        (payload, ids) pairs go in one HTTP request. Returns the number of points
+        touched.
+        """
+        pending: list[dict[str, Any]] = []
+        touched = 0
+        for payload, ids in updates:
+            ids_list = list(ids)
+            if not ids_list:
+                continue
+            pending.append({"set_payload": {"payload": payload, "points": ids_list}})
+            touched += len(ids_list)
+            if len(pending) >= chunk:
+                await self._request("POST", f"/collections/{name}/points/batch",
+                                    {"operations": pending}, params={"wait": "false"})
+                pending = []
+        if pending:
+            await self._request("POST", f"/collections/{name}/points/batch",
+                                {"operations": pending}, params={"wait": "false"})
+        return touched
+
 
 # Backwards-compatible alias: existing job code constructs `QdrantClient(url, key)`.
 QdrantClient = IngestQdrant

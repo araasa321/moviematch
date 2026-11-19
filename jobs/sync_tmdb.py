@@ -23,7 +23,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -43,6 +43,12 @@ log = logging.getLogger("sync")
 # the pipeline was English-only by accident rather than by design. It is now the
 # real default for `--langs`, and any extra code enables a full extra crawl pass.
 DEFAULT_LANGS = ("en",)
+
+# Languages scanned for recent releases by the daily job. Mirrors the curated
+# lists this catalog is built from, so a same-week Malayalam/Tamil/Hindi/Korean
+# release is caught even before it has votes. `with_original_language` accepts a
+# single value only (comma/pipe lists return nothing), hence one call each.
+DEFAULT_RECENT_LANGS = ("en", "ml", "hi", "ta", "ko")
 
 # Matches a TMDB watchlist URL and captures the numeric id.
 _LIST_URL_RE = re.compile(r"/list/(\d+)")
@@ -91,6 +97,7 @@ class Stats:
     list_movies: int = 0
     list_series: int = 0
     lists_used: int = 0
+    recent_found: int = 0        # candidates from the daily recent-release passes
     started: float = field(default_factory=time.monotonic)
 
     def as_dict(self) -> dict[str, Any]:
@@ -108,6 +115,8 @@ class Stats:
             base += (f" lists={self.lists_used} list_items={self.list_items} "
                      f"list_future={self.list_future} list_movies={self.list_movies} "
                      f"list_series={self.list_series}")
+        if self.recent_found:
+            base += f" recent={self.recent_found}"
         return base
 
 
@@ -254,9 +263,17 @@ async def existing_ids(qdrant: QdrantClient, *, enriched_only: bool = False) -> 
     return ids
 
 
-async def existing_payloads(qdrant: QdrantClient) -> dict[str, dict[str, Any]]:
+async def existing_payloads(qdrant: QdrantClient, *,
+                            fields: Sequence[str] | None = None,
+                            ) -> dict[str, dict[str, Any]]:
+    """Point id -> payload for the whole collection.
+
+    `fields` restricts the scroll to the keys actually needed. On a 43k-point
+    catalog a full-payload scroll was the slowest part of the nightly run (43
+    batches at ~1 s each) even though the caller only wanted popularity.
+    """
     out: dict[str, dict[str, Any]] = {}
-    async for point in qdrant.iter_all_payloads():
+    async for point in qdrant.iter_all_payloads(fields=list(fields) if fields else None):
         out[str(point["id"])] = point.get("payload") or {}
     return out
 
@@ -554,20 +571,31 @@ def _describe_years(starts: list[int]) -> str:
 
 
 # ----------------------------------------------------------------- nightly
-async def nightly(args: argparse.Namespace) -> Stats:
+async def daily(args: argparse.Namespace) -> Stats:
+    """Every-day sync: add new titles, catch recent releases, light popularity.
+
+    Deliberately does NOT sweep popularity across the whole catalog or recompute
+    every score — that is `refresh()`'s job on Sundays. On a 43k-point catalog the
+    full sweep used to exceed the 45-minute workflow timeout, so the job was
+    killed before it ever added anything. Keeping the daily path small is what
+    makes it finish.
+    """
     stats = Stats()
     embedder = Embedder(args.model, args.batch)
     qdrant = QdrantClient(args.qdrant_url, args.qdrant_key)
     if not args.dry_run:
         await qdrant.create_titles_collection()
-    year_now = datetime.now(timezone.utc).year
-    today = datetime.now(timezone.utc).strftime("%m_%d_%Y")
+    now = datetime.now(timezone.utc)
+    year_now = now.year
+    today = now.strftime("%m_%d_%Y")
 
     async with TMDBClient(args.tmdb_token, rate=args.rate,
                                 concurrency=args.concurrency) as client:
-        payloads = await existing_payloads(qdrant) if not args.dry_run else {}
+        # Only `popularity` is needed: full payloads made this scroll the slowest
+        # part of the run (43 batches at ~1 s each) purely to learn which ids exist.
+        payloads = (await existing_payloads(qdrant, fields=["popularity"])
+                    if not args.dry_run else {})
 
-        # 1+2. daily exports -> new ids and popularity refresh
         for media_type in args.types:
             try:
                 export = await download_export(media_type, today)
@@ -577,20 +605,28 @@ async def nightly(args: argparse.Namespace) -> Stats:
             log.info("%s export: %s ids", media_type, len(export))
 
             by_id = {int(row["id"]): row for row in export if row.get("id")}
-            # 4. popularity refresh for ALL known points — payload only, no re-embed
+
+            # Light popularity refresh: only ids we already hold, and the values
+            # are already in memory, so this costs no extra requests.
             updates: dict[float, list[str]] = {}
             for tmdb_id, row in by_id.items():
                 pid = point_id(media_type, tmdb_id)
                 if pid in payloads and "popularity" in row:
-                    updates.setdefault(float(row["popularity"]), []).append(pid)
-            for popularity, ids in updates.items():
+                    # Round to one decimal: TMDB popularity is a near-unique
+                    # float, so grouping on the exact value produced one group
+                    # per title and the "batching" degenerated into ~43k separate
+                    # requests, each ~370 ms. One decimal place is far more
+                    # precision than a ranking signal needs.
+                    updates.setdefault(round(float(row["popularity"]), 1),
+                                       []).append(pid)
+            if updates:
                 if args.dry_run:
-                    stats.payload_updates += len(ids)
-                    continue
-                await qdrant.set_payload({"popularity": popularity}, ids)
-                stats.payload_updates += len(ids)
+                    stats.payload_updates += sum(len(v) for v in updates.values())
+                else:
+                    stats.payload_updates += await qdrant.set_payload_batch(
+                        (({"popularity": pop}, ids) for pop, ids in updates.items()))
 
-            # 3. new ids -> details -> policy -> embed -> upsert (capped per day)
+            # New ids -> details -> policy -> embed -> upsert (capped per day)
             fresh = [(tmdb_id, row) for tmdb_id, row in by_id.items()
                      if point_id(media_type, tmdb_id) not in payloads]
             fresh.sort(key=lambda pair: -float(pair[1].get("popularity") or 0))
@@ -604,8 +640,99 @@ async def nightly(args: argparse.Namespace) -> Stats:
                                           keep_langs=getattr(args, "langs", None))
             await upsert_ready(qdrant, embedder, ready, stats,
                                existing=set(payloads), dry_run=args.dry_run)
+            payloads.update({point_id(media_type, r["payload"]["tmdb_id"]): r["payload"]
+                             for r in ready})
 
-        # 5+6. votes/ratings for the active set, then recompute bayes
+        # Recently released titles, in two passes:
+        #   (a) the user's own languages, one discover call each
+        #   (b) all languages, so a foreign debut is not missed entirely
+        # A title found by both is fetched once: `payloads` is updated between
+        # passes, so the second pass dedupes for free.
+        if args.recent_days > 0:
+            since = (now - timedelta(days=args.recent_days)).strftime("%Y-%m-%d")
+            for media_type in args.types:
+                date_field = ("primary_release_date" if media_type == "movie"
+                              else "first_air_date")
+                windows: list[dict[str, Any]] = [
+                    {"with_original_language": lang} for lang in args.recent_langs]
+                windows.append({})          # no language filter
+                for window in windows:
+                    label = window.get("with_original_language") or "all"
+                    try:
+                        found = await _recent_candidates(
+                            client, media_type, date_field, since, window,
+                            max_pages=args.recent_pages)
+                    except Exception as exc:  # noqa: BLE001 - never kill the run
+                        stats.errors += 1
+                        log.warning("recent pass %s[%s] failed: %s", media_type, label, exc)
+                        continue
+                    stats.recent_found += len(found)
+                    ready = await fetch_and_build(client, media_type, found,
+                                                  year_now=year_now, stats=stats,
+                                                  known=set(payloads),
+                                                  keep_langs=getattr(args, "langs", None),
+                                                  dry_run=args.dry_run)
+                    await upsert_ready(qdrant, embedder, ready, stats,
+                                       existing=set(payloads), dry_run=args.dry_run)
+                    for row in ready:
+                        payloads[point_id(media_type, row["payload"]["tmdb_id"])] = (
+                            row["payload"])
+                    log.info("recent %s[%s] since %s: %s", media_type, label, since,
+                             stats.line())
+    return stats
+
+
+async def _recent_candidates(client: TMDBClient, media_type: str, date_field: str,
+                             since: str, window: dict[str, Any], *,
+                             max_pages: int = 2) -> list[dict[str, Any]]:
+    """Titles released in the last few days, newest first."""
+    return [item async for item in client.iter_discover(
+        media_type, max_pages=max_pages, sort_by=f"{date_field}.desc",
+        **{f"{date_field}.gte": since}, **window)]
+
+
+async def refresh(args: argparse.Namespace) -> Stats:
+    """Weekly maintenance: popularity across everything, then votes/bayes.
+
+    Split out of the daily job because this is the expensive half. With the
+    popularity grouping fixed it is ~200 requests instead of ~43k, but it still
+    has no business running every day.
+    """
+    stats = Stats()
+    qdrant = QdrantClient(args.qdrant_url, args.qdrant_key)
+    if not args.dry_run:
+        await qdrant.create_titles_collection()
+    now = datetime.now(timezone.utc)
+    year_now = now.year
+    today = now.strftime("%m_%d_%Y")
+
+    async with TMDBClient(args.tmdb_token, rate=args.rate,
+                                concurrency=args.concurrency) as client:
+        payloads = await existing_payloads(qdrant) if not args.dry_run else {}
+
+        # 1. popularity refresh for ALL known points — payload only, no re-embed
+        for media_type in args.types:
+            try:
+                export = await download_export(media_type, today)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("export unavailable for %s: %s", media_type, exc)
+                continue
+            by_id = {int(row["id"]): row for row in export if row.get("id")}
+            updates: dict[float, list[str]] = {}
+            for tmdb_id, row in by_id.items():
+                pid = point_id(media_type, tmdb_id)
+                if pid in payloads and "popularity" in row:
+                    updates.setdefault(round(float(row["popularity"]), 1),
+                                       []).append(pid)
+            if args.dry_run:
+                stats.payload_updates += sum(len(v) for v in updates.values())
+            else:
+                stats.payload_updates += await qdrant.set_payload_batch(
+                    (({"popularity": pop}, ids) for pop, ids in updates.items()))
+            log.info("%s popularity: %s points in %s requests", media_type,
+                     sum(len(v) for v in updates.values()), len(updates))
+
+        # 2+3. votes/ratings for the active set, then recompute bayes
         updates_by_id: dict[str, dict[str, Any]] = {}
         active_sample: list[dict[str, Any]] = []
         for media_type in args.types:
@@ -628,10 +755,14 @@ async def nightly(args: argparse.Namespace) -> Stats:
                 "bayes": merged["bayes"],
                 "bayes_gems": merged["bayes_gems"],
             }
-        for pid, patch in updates_by_id.items():
+        if updates_by_id:
             if not args.dry_run:
-                await qdrant.set_payload(patch, [pid])
-            stats.payload_updates += 1
+                # One request per point made this the second half of the timeout
+                # problem; the batch endpoint takes distinct payloads per point.
+                stats.payload_updates += await qdrant.set_payload_batch(
+                    ((patch, [pid]) for pid, patch in updates_by_id.items()))
+            else:
+                stats.payload_updates += len(updates_by_id)
         log.info("vote/bayes refresh applied to %s points", len(updates_by_id))
 
     return stats
@@ -640,7 +771,12 @@ async def nightly(args: argparse.Namespace) -> Stats:
 # -------------------------------------------------------------------- cli
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MovieMatch TMDB ingest")
-    parser.add_argument("--mode", choices=("bootstrap", "nightly"), default="nightly")
+    parser.add_argument("--mode", choices=("bootstrap", "daily", "refresh", "nightly"),
+                        default="daily",
+                        help="bootstrap = fill the catalog; daily = add new titles + "
+                             "recent releases (every day); refresh = weekly popularity "
+                             "sweep + votes/bayes. 'nightly' is a legacy alias for "
+                             "'daily'.")
     parser.add_argument("--types", nargs="+", default=["movie", "series"],
                         choices=["movie", "series"])
     parser.add_argument("--langs", nargs="+", default=list(DEFAULT_LANGS), metavar="ISO639_1",
@@ -676,6 +812,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         help="skip the 0-vote recency pass (probes only)")
     parser.add_argument("--min-votes", type=int, default=None,
                         help="override the vote_count threshold for every slice")
+    # --- daily-mode recent-release pass -------------------------------------
+    parser.add_argument("--recent-days", type=int, default=3,
+                        help="daily mode: also pick up titles released in the last "
+                             "N days (0 disables). Catches same-week releases that "
+                             "have no votes yet and so miss the export ranking.")
+    parser.add_argument("--recent-pages", type=int, default=2,
+                        help="daily mode: discover pages per recent pass")
+    parser.add_argument("--recent-langs", nargs="+", default=None, metavar="ISO639_1",
+                        help="daily mode: scan these languages for recent releases, "
+                             "one discover call each. Defaults to "
+                             f"{' '.join(DEFAULT_RECENT_LANGS)}.")
     parser.add_argument("--rate", type=float,
                         default=float(os.environ.get("TMDB_RATE", "30")),
                         help="average requests/second. TMDB's documented ceiling is "
@@ -693,6 +840,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                              "the built-in fixture catalog; no TMDB, Qdrant or model access")
     parser.add_argument("--stats-out", default=None, help="write run stats as JSON")
     args = parser.parse_args(argv)
+    # Daily-mode recent pass always scans the user's languages plus "all
+    # languages" (an empty window), so a foreign debut is never missed entirely.
+    if not args.recent_langs:
+        args.recent_langs = list(DEFAULT_RECENT_LANGS)
     # Normalise here so a typo'd list id fails before any network work begins.
     if args.lists:
         try:
@@ -714,7 +865,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 async def run(args: argparse.Namespace) -> Stats:
     if args.dry_run:
         return await dry_run()
-    return await (bootstrap(args) if args.mode == "bootstrap" else nightly(args))
+    if args.mode == "bootstrap":
+        return await bootstrap(args)
+    if args.mode == "refresh":
+        return await refresh(args)
+    # "nightly" is the legacy name for what is now the daily job; keeping it as
+    # an alias means an existing workflow or cron that passes --mode nightly does
+    # not silently start running the weekly sweep instead.
+    return await daily(args)
 
 
 async def dry_run() -> Stats:
