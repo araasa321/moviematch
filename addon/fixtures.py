@@ -19,6 +19,24 @@ BATMAN = (0.0, 1.0, 0.0)
 NOLAN = (1.0, 0.0, 0.0)
 SPACE = (0.0, 0.0, 1.0)
 
+# Genres per tmdb id. Real TMDB payloads always carry a genre list; the fixture
+# catalog used to leave it empty, which made every genre-filtering test vacuous.
+# Names match `policy.GENRE_NAMES` (i.e. what the ingest job actually stores).
+GENRES: dict[int, tuple[str, ...]] = {
+    155: ("Action", "Crime", "Drama", "Thriller"),
+    272: ("Action", "Crime", "Drama"),
+    49026: ("Action", "Crime", "Drama", "Thriller"),
+    475557: ("Crime", "Drama", "Thriller"),
+    27205: ("Action", "Sci-Fi", "Thriller"),
+    1124: ("Drama", "Mystery", "Thriller"),
+    77: ("Mystery", "Thriller"),
+    157336: ("Adventure", "Drama", "Sci-Fi"),
+    62: ("Sci-Fi", "Adventure", "Mystery"),
+    129: ("Animation", "Family", "Fantasy"),
+    550: ("Drama", "Thriller"),
+    1396: ("Crime", "Drama", "Thriller"),
+}
+
 
 def imdb_id(tmdb: int) -> str:
     return f"tt{1_000_000 + tmdb:07d}"
@@ -91,7 +109,8 @@ def catalog(dim: int = 3) -> list[dict[str, Any]]:
     return [
         title(media_type, tmdb, name, vec(base), year=year, vote_average=avg,
               vote_count=votes, popularity=pop, director=director, cast=cast,
-              collection_id=coll, language=language)
+              collection_id=coll, language=language,
+              genres=GENRES.get(tmdb, ("Drama",)))
         for tmdb, name, base, year, avg, votes, pop, director, cast, coll, language, media_type in rows
     ]
 

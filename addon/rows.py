@@ -194,9 +194,21 @@ def because_seed(store: Store, state: UserState, media_type: str) -> Any | None:
     return store.get(pid) if pid else None
 
 
+def _matches_genre(payload: dict[str, Any], wanted: str) -> bool:
+    """Case-insensitive genre membership.
+
+    Stremio's dropdown options are hand-written in `stremio.GENRE_OPTIONS` and do
+    not have to match the exact casing TMDB wrote into the payload, so the
+    comparison is normalised on both sides.
+    """
+    target = wanted.strip().casefold()
+    return any(str(g).strip().casefold() == target
+               for g in (payload.get("genres") or []))
+
+
 def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
               config: Config | None = None, *, now: datetime | None = None,
-              year_now: int | None = None) -> RowPlan:
+              year_now: int | None = None, genre: str | None = None) -> RowPlan:
     config = config or Config()
     now = now or datetime.now(timezone.utc)
     year_now = year_now or now.year
@@ -224,7 +236,16 @@ def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
         query = taste.query
 
     pool = _candidate_pool(store, query, media_type=media_type, langs=config.langs,
-                           excluded=excluded, year_now=year_now, ann_limit=ann_limit)
+                           excluded=excluded, year_now=year_now, ann_limit=ann_limit,
+                           genre=genre)
+
+    if genre and not pool:
+        # An empty filtered pool almost always means the requested genre name
+        # does not exist in the catalog. Report it so a typo surfaces as an empty
+        # row with a reason, rather than looking like "this user has no taste".
+        return RowPlan([], taste, count_positive_signals(state), excluded,
+                       {"reason": "empty_genre", "genre": genre,
+                        "row": row, "media_type": media_type})
 
     year_seed = (seed_title.payload.get("year") if seed_title is not None
                  else median_year(state.watched_years))
@@ -248,21 +269,30 @@ def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
     return RowPlan(ranked, taste, count_positive_signals(state), excluded,
                    {"year_seed": year_seed, "row": row, "media_type": media_type,
                     "ann_limit": ann_limit, "pool": len(pool),
+                    "genre": genre,
                     "pool_source": "ann" if hasattr(store, "search") else "scan"})
 
 
 def _candidate_pool(store: Store, query: np.ndarray, *, media_type: str,
                     langs: Sequence[str], excluded: set[str], year_now: int,
-                    ann_limit: int) -> list[Candidate]:
+                    ann_limit: int, genre: str | None = None) -> list[Candidate]:
     """Candidates for ranking.
 
     Large catalogs are queried with ANN (Qdrant does the distance maths and the
     §9.1 filters); the in-memory stores used by tests scan directly. Both paths
     apply `guard_reasons` so behaviour is identical.
+
+    `genre` is applied in Python rather than pushed into the Qdrant filter: the
+    genre strings come from TMDB verbatim and Stremio's options are hand-written,
+    so an exact-match Qdrant `match` could silently drop everything on a casing
+    difference. Compare after normalising instead.
     """
     if hasattr(store, "search"):
+        # Over-fetch when filtering by genre, otherwise a narrow genre can yield
+        # almost nothing from the default ANN window.
+        fetch = ann_limit * 4 if genre else ann_limit
         try:
-            records = store.search(query, media_type=media_type, limit=ann_limit,
+            records = store.search(query, media_type=media_type, limit=fetch,
                                    langs=langs, exclude=excluded)
         except Exception:  # noqa: BLE001 - fall back rather than fail the row
             records = []
@@ -270,12 +300,14 @@ def _candidate_pool(store: Store, query: np.ndarray, *, media_type: str,
             return [rec.to_candidate() for rec in records
                     if rec.point_id not in excluded
                     and guard_reasons(rec.payload, media_type=media_type, langs=langs,
-                                      year_now=year_now) is None]
+                                      year_now=year_now) is None
+                    and (not genre or _matches_genre(rec.payload, genre))]
 
     return [rec.to_candidate() for rec in store.get_all(media_type)
             if rec.point_id not in excluded
             and guard_reasons(rec.payload, media_type=media_type, langs=langs,
-                              year_now=year_now) is None]
+                              year_now=year_now) is None
+            and (not genre or _matches_genre(rec.payload, genre))]
 
 
 def because_query(seed_title: Any, taste: Taste) -> np.ndarray:

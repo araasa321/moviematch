@@ -218,6 +218,23 @@ def test_http_surface_serves_manifest_and_catalog(store, history, secret):
             paged = client.get(f"{base}/{blob}/catalog/movie/foryou/skip=1.json").json()
             assert paged["metas"] == catalog["metas"][1:]
 
+            # --- genre extra (regression: it was parsed and then discarded) -----
+            action = client.get(f"{base}/{blob}/catalog/movie/foryou/genre=Action.json").json()
+            assert action["metas"], "genre=Action returned an empty row"
+            for meta in action["metas"]:
+                assert "Action" in (meta.get("genres") or []), meta
+
+            # a different genre must NOT be served the cached first result
+            animation = client.get(f"{base}/{blob}/catalog/movie/foryou/genre=Animation.json").json()
+            assert [m["id"] for m in animation["metas"]] != [m["id"] for m in action["metas"]]
+            for meta in animation["metas"]:
+                assert "Animation" in (meta.get("genres") or []), meta
+
+            # genre combined with skip must both apply
+            action_page2 = client.get(
+                f"{base}/{blob}/catalog/movie/foryou/skip=1&genre=Action.json").json()
+            assert action_page2["metas"] == action["metas"][1:]
+
             assert client.get(f"{base}/{Config(secret='bad').encode()}/manifest.json").status_code == 403
             assert client.get(f"{base}/garbage!!/manifest.json").status_code == 400
             assert client.get(f"{base}/{blob}/catalog/movie/bogus.json").status_code == 404

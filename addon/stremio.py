@@ -60,8 +60,10 @@ def build_manifest(base_url: str, config_blob: str, seeds: dict[str, str] | None
                 name = f"{name} (Series)"
             entry: dict[str, Any] = {"type": media_type, "id": catalog_id, "name": name}
             extra: list[dict[str, Any]] = [{"name": "skip"}]
-            if catalog_id == "foryou" and media_type == "movie":
-                extra.append({"name": "genre", "options": GENRE_OPTIONS, "isRequired": False})
+            # Genre filtering applies to every ranked row (For You / Because /
+            # New) — the handler honours `genre=` regardless of catalog id, so
+            # only offering it on `foryou`+`movie` hid a working feature.
+            extra.append({"name": "genre", "options": GENRE_OPTIONS, "isRequired": False})
             entry["extra"] = extra
             catalogs.append(entry)
 

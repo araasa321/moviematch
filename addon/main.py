@@ -249,24 +249,28 @@ def make_app(store: Any | None = None,
             return error
         if media_type not in VALID_TYPES or row not in VALID_ROWS:
             return JSONResponse({"metas": []}, status_code=404)
-        plan = await _cached_plan(config, media_type, row)
+        plan = await _cached_plan(config, media_type, row, extra.get("genre", ""))
         metas = to_metas(plan.ranked, skip=safe_skip(extra), limit=PAGE_SIZE)
         return JSONResponse(catalog_response(metas), headers={"Cache-Control": "max-age=900"})
 
-    async def _cached_plan(config: Config, media_type: str, row: str) -> RowPlan:
-        """Rank once per (row, type, mode) and reuse for ~15 min (§11.3).
+    async def _cached_plan(config: Config, media_type: str, row: str,
+                           genre: str = "") -> RowPlan:
+        """Rank once per (row, type, mode, genre) and reuse for ~15 min (§11.3).
 
         Ranking 70k titles on every Stremio request would blow the client's ~10 s
         timeout on a cold Koyeb instance; the cache makes only the FIRST request
         pay the cost.
+
+        `genre` MUST be part of the key: it was originally omitted, so the first
+        genre a user picked was cached and served for every other genre too.
         """
-        key = (row, media_type, config.mode)
+        key = (row, media_type, config.mode, (genre or "").strip().casefold())
         now = time.monotonic()
         cached = row_cache.get(key)
         if cached and now - cached[0] < ROW_CACHE_SECONDS:
             return cached[1]
         history = await current_history()
-        plan = build_row(store, history, media_type, row, config)
+        plan = build_row(store, history, media_type, row, config, genre=genre or None)
         # a transient failure must not be cached for 15 minutes
         if plan.ranked:
             row_cache[key] = (now, plan)
