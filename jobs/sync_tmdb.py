@@ -38,6 +38,9 @@ from jobs.tmdb import TMDBClient, download_export                  # noqa: E402
 
 log = logging.getLogger("sync")
 
+# Default crawl languages. This constant used to be defined and never read, so
+# the pipeline was English-only by accident rather than by design. It is now the
+# real default for `--langs`, and any extra code enables a full extra crawl pass.
 DEFAULT_LANGS = ("en",)
 YEAR_WINDOWS = 3          # bootstrap crawls the catalog in slices to stay resumable
 
@@ -113,7 +116,9 @@ async def fetch_and_build(client: TMDBClient, media_type: str,
                           year_now: int, stats: Stats, limit: int | None = None,
                           trakt_ids: set[int] | None = None,
                           dry_run: bool = False,
-                          known: set[str] | None = None) -> list[dict[str, Any]]:
+                          known: set[str] | None = None,
+                          keep_langs: tuple[str, ...] | None = None,
+                          extra: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Details -> normalize -> policy -> text. Embeddings happen in `upsert_ready`.
 
     `known` is the set of point ids already in the collection. They are filtered
@@ -151,7 +156,8 @@ async def fetch_and_build(client: TMDBClient, media_type: str,
                 return None
             payload = policy.normalize_payload(media_type, details, year_now=year_now)
             verdict = policy.should_index(payload, year_now=year_now,
-                                          in_trakt=tmdb_id in trakt_ids)
+                                          in_trakt=tmdb_id in trakt_ids,
+                                          keep_langs=keep_langs)
         except Exception as exc:  # noqa: BLE001 - one bad title must not kill the run
             # Covers the network call AND payload normalisation: TMDB occasionally
             # returns explicit nulls for optional fields, and one malformed record
@@ -169,7 +175,10 @@ async def fetch_and_build(client: TMDBClient, media_type: str,
             stats.missing_imdb += 1
         text = build_text(payload)
         payload["text_hash"] = text_hash(text)
-        return {"payload": payload, "text": text}
+        row = {"payload": payload, "text": text}
+        if extra:
+            row.update(extra)          # e.g. the language that produced this row
+        return row
 
     # Bounded fan-out: the client's pacer keeps the average rate at `rate` req/s
     # while up to `concurrency` requests overlap, so latency stops serialising
@@ -254,79 +263,108 @@ async def bootstrap(args: argparse.Namespace) -> Stats:
     year_now = datetime.now(timezone.utc).year
     years = bootstrap_years(args)
     log.info("bootstrap years: %s", _describe_years(years))
+    # Language plan: ("en",) keeps the original single-crawl behaviour. Any extra
+    # language adds one crawl per language. `--langs en ja ko` therefore crawls
+    # English FIRST and then ja/ko, so an interrupted run still leaves a complete
+    # English catalog behind (same reasoning as newest-decade-first).
+    languages = tuple(args.langs or DEFAULT_LANGS)
+    log.info("bootstrap languages: %s", ", ".join(languages))
     async with TMDBClient(args.tmdb_token, rate=args.rate,
                                 concurrency=args.concurrency) as client:
-        for media_type in args.types:
-            threshold = policy.MOVIE_MIN_VOTES if media_type == "movie" else \
-                policy.SERIES_MIN_VOTES
-            if args.min_votes is not None:
-                threshold = args.min_votes
-            # --limit is a PER-TYPE budget. It used to be global, so "movie series"
-            # with a limit filled movies and silently never reached series.
-            type_target = args.limit
-            type_written = 0
-            for decade in years:
-                if type_target is not None and type_written >= type_target:
-                    break
-                span_start, span_end = decade, min(decade + 9, year_now)
-                window = {
-                    "vote_count.gte": threshold,
-                    "primary_release_date.gte": f"{span_start}-01-01",
-                    "primary_release_date.lte": f"{span_end}-12-31",
-                }
-                if media_type == "series":
+        for lang in languages:
+            # Non-English slices get a lower vote floor: those titles have far
+            # fewer en-US votes and the English bar would discard them.
+            keep_langs = languages if len(languages) > 1 or lang != "en" else None
+            for media_type in args.types:
+                threshold = _vote_threshold(media_type, lang, len(languages) > 1)
+                if args.min_votes is not None:
+                    threshold = args.min_votes
+                # --limit is a PER-TYPE budget. It used to be global, so "movie series"
+                # with a limit filled movies and silently never reached series.
+                type_target = args.limit
+                type_written = 0
+                for decade in years:
+                    if type_target is not None and type_written >= type_target:
+                        break
+                    span_start, span_end = decade, min(decade + 9, year_now)
                     window = {
                         "vote_count.gte": threshold,
-                        "first_air_date.gte": f"{span_start}-01-01",
-                        "first_air_date.lte": f"{span_end}-12-31",
+                        "with_original_language": lang,
+                        "primary_release_date.gte": f"{span_start}-01-01",
+                        "primary_release_date.lte": f"{span_end}-12-31",
                     }
-                # Within a decade, walk by vote count instead of current popularity:
-                # popularity is *today's* buzz, so it buries a 1995 classic under a
-                # 2024 release. Inside a fixed year window, votes ≈ "known film".
-                log.info("bootstrap %s %s-%s (votes>=%s, sort=%s)", media_type, span_start,
-                         span_end, threshold, args.sort_by or "popularity.desc")
-                items = [item async for item in client.iter_discover(
-                    media_type, max_pages=args.max_pages,
-                    # sort_by is a named parameter of discover(); it must NOT go
-                    # through **window or it collides ("multiple values").
-                    sort_by=args.sort_by or "popularity.desc", **window)]
-                remaining = (None if type_target is None
-                             else max(0, type_target - type_written))
-                ready = await fetch_and_build(client, media_type, items,
-                                              year_now=year_now, stats=stats,
-                                              limit=remaining, known=done,
-                                              dry_run=args.dry_run)
-                before = stats.upserted
-                await upsert_ready(qdrant, embedder, ready, stats,
-                                   existing=done, dry_run=args.dry_run)
-                done.update(point_id(r["payload"]["media_type"], r["payload"]["tmdb_id"])
-                            for r in ready)
-                type_written += stats.upserted - before
-                log.info("after %s %s-%s: %s", media_type, span_start, span_end, stats.line())
-                if args.recent_only:
-                    break
-            if type_target is not None:
-                log.info("%s: wrote %s of %s requested this run", media_type,
-                         type_written, type_target)
+                    if media_type == "series":
+                        window = {
+                            "vote_count.gte": threshold,
+                            "with_original_language": lang,
+                            "first_air_date.gte": f"{span_start}-01-01",
+                            "first_air_date.lte": f"{span_end}-12-31",
+                        }
+                    # Within a decade, walk by vote count instead of current popularity:
+                    # popularity is *today's* buzz, so it buries a 1995 classic under a
+                    # 2024 release. Inside a fixed year window, votes ≈ "known film".
+                    log.info("bootstrap %s[%s] %s-%s (votes>=%s, sort=%s)", media_type, lang,
+                             span_start, span_end, threshold, args.sort_by or "popularity.desc")
+                    items = [item async for item in client.iter_discover(
+                        media_type, max_pages=args.max_pages,
+                        # sort_by is a named parameter of discover(); it must NOT go
+                        # through **window or it collides ("multiple values").
+                        sort_by=args.sort_by or "popularity.desc", **window)]
+                    remaining = (None if type_target is None
+                                 else max(0, type_target - type_written))
+                    ready = await fetch_and_build(client, media_type, items,
+                                                  year_now=year_now, stats=stats,
+                                                  limit=remaining, known=done,
+                                                  keep_langs=keep_langs,
+                                                  dry_run=args.dry_run)
+                    before = stats.upserted
+                    await upsert_ready(qdrant, embedder, ready, stats,
+                                       existing=done, dry_run=args.dry_run)
+                    done.update(point_id(r["payload"]["media_type"], r["payload"]["tmdb_id"])
+                                for r in ready)
+                    type_written += stats.upserted - before
+                    log.info("after %s[%s] %s-%s: %s", media_type, lang, span_start,
+                             span_end, stats.line())
+                    if args.recent_only:
+                        break
+                if type_target is not None:
+                    log.info("%s[%s]: wrote %s of %s requested this run", media_type, lang,
+                             type_written, type_target)
 
-        # PLAN §5 recency clause: the newest titles have no vote threshold yet.
-        # Skipped only when the caller limited the run (that's a probe, not a fill).
-        if not args.no_recent_pass:
-            for media_type in args.types:
-                date_field = ("primary_release_date" if media_type == "movie"
-                              else "first_air_date")
-                recent = await client.discover(
-                    media_type, 1, sort_by=f"{date_field}.desc",
-                    **{f"{date_field}.gte": f"{year_now - 1}-01-01"})
-                ready = await fetch_and_build(client, media_type,
-                                              recent.get("results") or [],
-                                              year_now=year_now, stats=stats,
-                                              known=done, dry_run=args.dry_run)
-                await upsert_ready(qdrant, embedder, ready, stats, existing=done,
-                                   dry_run=args.dry_run)
-                done.update(point_id(r["payload"]["media_type"], r["payload"]["tmdb_id"])
-                            for r in ready)
+            # PLAN §5 recency clause: the newest titles have no vote threshold yet.
+            # Skipped only when the caller limited the run (that's a probe, not a fill).
+            if not args.no_recent_pass:
+                for media_type in args.types:
+                    date_field = ("primary_release_date" if media_type == "movie"
+                                  else "first_air_date")
+                    recent = await client.discover(
+                        media_type, 1, sort_by=f"{date_field}.desc",
+                        with_original_language=lang,
+                        **{f"{date_field}.gte": f"{year_now - 1}-01-01"})
+                    ready = await fetch_and_build(client, media_type,
+                                                  recent.get("results") or [],
+                                                  year_now=year_now, stats=stats,
+                                                  known=done, keep_langs=keep_langs,
+                                                  dry_run=args.dry_run)
+                    await upsert_ready(qdrant, embedder, ready, stats, existing=done,
+                                       dry_run=args.dry_run)
+                    done.update(point_id(r["payload"]["media_type"], r["payload"]["tmdb_id"])
+                                for r in ready)
     return stats
+
+
+def _vote_threshold(media_type: str, lang: str, multi_lang: bool) -> int:
+    """Vote floor for one (type, language) slice.
+
+    English-only runs keep the original PLAN §5 thresholds so existing behaviour
+    is untouched. A non-English crawl, or any multi-language crawl, uses the
+    lower foreign floor — otherwise the ja/ko slices mostly fail the vote test
+    and the crawl spends quota to import almost nothing.
+    """
+    foreign = lang != "en" or multi_lang
+    if media_type == "series":
+        return policy.FOREIGN_SERIES_MIN_VOTES if foreign else policy.SERIES_MIN_VOTES
+    return policy.FOREIGN_MOVIE_MIN_VOTES if foreign else policy.MOVIE_MIN_VOTES
 
 
 def bootstrap_years(args: argparse.Namespace) -> list[int]:
@@ -404,7 +442,8 @@ async def nightly(args: argparse.Namespace) -> Stats:
             ready = await fetch_and_build(client, media_type,
                                           [row | {"id": tmdb_id} for tmdb_id, row in fresh],
                                           year_now=year_now, stats=stats,
-                                          limit=cap, dry_run=args.dry_run)
+                                          limit=cap, dry_run=args.dry_run,
+                                          keep_langs=getattr(args, "langs", None))
             await upsert_ready(qdrant, embedder, ready, stats,
                                existing=set(payloads), dry_run=args.dry_run)
 
@@ -446,6 +485,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--mode", choices=("bootstrap", "nightly"), default="nightly")
     parser.add_argument("--types", nargs="+", default=["movie", "series"],
                         choices=["movie", "series"])
+    parser.add_argument("--langs", nargs="+", default=list(DEFAULT_LANGS), metavar="ISO639_1",
+                        help="original-language slices to crawl, e.g. --langs en ja ko. "
+                             "English is crawled first; every extra language adds a "
+                             "full crawl pass and uses the lower foreign vote floor.")
     parser.add_argument("--limit", type=int, default=None,
                         help="stop after N upserted points (smoke runs)")
     parser.add_argument("--new-cap", type=int, default=3000,
@@ -469,9 +512,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         help="skip the 0-vote recency pass (probes only)")
     parser.add_argument("--min-votes", type=int, default=None,
                         help="override the vote_count threshold for every slice")
-    parser.add_argument("--rate", type=float, default=float(os.environ.get("TMDB_RATE", "15")))
+    parser.add_argument("--rate", type=float,
+                        default=float(os.environ.get("TMDB_RATE", "30")),
+                        help="average requests/second. TMDB's documented ceiling is "
+                             "~40 req/s (https://developer.themoviedb.org/docs/"
+                             "rate-limiting); 30 leaves headroom and 429 back-off "
+                             "handles the rest.")
     parser.add_argument("--concurrency", type=int,
-                        default=int(os.environ.get("TMDB_CONCURRENCY", "8")),
+                        default=int(os.environ.get("TMDB_CONCURRENCY", "16")),
                         help="in-flight TMDB requests; the pacer still caps the rate")
     parser.add_argument("--batch", type=int, default=64)
     parser.add_argument("--model", default="sentence-transformers/all-MiniLM-L6-v2")

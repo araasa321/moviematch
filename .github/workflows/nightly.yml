@@ -3,6 +3,11 @@ name: nightly-sync
 on:
   schedule: [{cron: "15 9 * * *"}]   # after TMDB's ~08:00 UTC export (PLAN §6.4)
   workflow_dispatch:
+    inputs:
+      langs:
+        description: "ISO-639-1 codes (space separated). Blank = 'en'."
+        required: false
+        default: "en"
 
 jobs:
   sync:
@@ -18,7 +23,10 @@ jobs:
           key: hf-minilm-v1
       - run: pip install -r jobs/requirements.txt
       - name: nightly sync
-        run: python jobs/sync_tmdb.py --mode nightly --stats-out sync-stats.json
+        run: |
+          LANGS="${{ inputs.langs }}"
+          if [ -z "$LANGS" ]; then LANGS="en"; fi
+          python jobs/sync_tmdb.py --mode nightly --langs $LANGS --stats-out sync-stats.json
         env:
           TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
           QDRANT_URL: ${{ secrets.QDRANT_URL }}

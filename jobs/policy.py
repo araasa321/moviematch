@@ -10,6 +10,11 @@ from typing import Any, Iterable
 
 MOVIE_MIN_VOTES = 100
 SERIES_MIN_VOTES = 50
+# Non-English titles have far fewer votes on TMDB because votes accrue mostly on
+# the en-US side. Keeping the English floor for them silently discards good
+# foreign films, so a foreign title qualifies on a much lower bar plus recency.
+FOREIGN_MOVIE_MIN_VOTES = 20
+FOREIGN_SERIES_MIN_VOTES = 10
 RECENT_MONTHS = 24
 
 BAYES_M = {"movie": 1000.0, "series": 300.0}
@@ -33,12 +38,22 @@ class Inclusion:
     missing: str | None = None      # set when the title is kept only *pending* enrichment
 
 
-def should_index(payload: dict[str, Any], *, year_now: int, in_trakt: bool = False) -> Inclusion:
+def should_index(payload: dict[str, Any], *, year_now: int, in_trakt: bool = False,
+                 keep_langs: Iterable[str] | None = None) -> Inclusion:
     """PLAN §5 catalog policy.
 
     Movies: vote_count >= 100 OR released in the last 24 months OR in Trakt.
     Series: vote_count >= 50 OR first/last air date within 24 months OR in Trakt.
     Always: must not be adult/video; must carry an imdb_id to be *shown*.
+
+    `keep_langs` widens the vote floor for non-English titles. When a crawl
+    includes foreign languages (`--langs en ja ko`) those titles have a far
+    thinner en-US vote history, so holding them to the English threshold would
+    discard most of what the crawl just paid TMDB quota to fetch.
+
+    Note `keep_langs` is the set of languages being crawled, so a title's own
+    language will normally BE in it. The floor therefore keys on "is this title
+    English?", not on set membership.
     """
     media_type = payload.get("media_type")
     if payload.get("adult") or payload.get("video"):
@@ -46,6 +61,12 @@ def should_index(payload: dict[str, Any], *, year_now: int, in_trakt: bool = Fal
 
     votes = int(payload.get("vote_count") or 0)
     threshold = SERIES_MIN_VOTES if media_type == "series" else MOVIE_MIN_VOTES
+    if keep_langs:
+        language = str(payload.get("language") or "")
+        foreign_slice = any(str(code) != "en" for code in keep_langs)
+        if foreign_slice and language and language != "en":
+            threshold = (FOREIGN_SERIES_MIN_VOTES if media_type == "series"
+                         else FOREIGN_MOVIE_MIN_VOTES)
     if votes >= threshold or in_trakt or _recent(payload, year_now):
         missing = None if payload.get("imdb_id") else "imdb_id"
         return Inclusion(True, "kept", missing)
@@ -142,6 +163,9 @@ def normalize_payload(media_type: str, details: dict[str, Any], *, year_now: int
         "director": director or "",
         "cast": [c for c in cast if c],
         "language": details.get("original_language") or "",
+        # `origin_country` is present on both movie and TV details. Kept so a
+        # country-scoped crawl can be verified against what was actually stored.
+        "origin_country": [c for c in (details.get("origin_country") or []) if c],
         "runtime": details.get("runtime") or (details.get("episode_run_time") or [None])[0],
         "vote_average": float(details.get("vote_average") or 0),
         "vote_count": int(details.get("vote_count") or 0),

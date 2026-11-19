@@ -195,6 +195,7 @@ def test_per_type_limit_lets_both_types_run(monkeypatch):
         tmdb_token="t", qdrant_url="http://x", qdrant_key="k",
         decades=[2020], year_from=None, year_to=None, recent_only=True,
         no_recent_pass=True, min_votes=None, sort_by="vote_count.desc",
+        langs=["en"],
     )
 
     real_fetch = sync_tmdb.fetch_and_build
@@ -211,6 +212,92 @@ def test_per_type_limit_lets_both_types_run(monkeypatch):
     # with a per-type limit of 1, at least one title of EACH type must be fetched
     assert "movie" in visited, visited
     assert "series" in visited, visited
+
+
+def test_bootstrap_crawls_every_requested_language(monkeypatch):
+    """`--langs en ja` must drive one distinct discover pass per language.
+
+    Guards the actual feature: without this, adding a language to the workflow
+    input could silently still crawl English only.
+    """
+    import argparse
+
+    discover_calls: list[dict] = []
+    details_langs: list[str] = []
+
+    class RecordingTMDB(FakeTMDB):
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def discover(self, media_type, page, **kwargs):
+            discover_calls.append({"media_type": media_type, "page": page, **kwargs})
+            return await super().discover(media_type, page, **kwargs)
+
+        async def details(self, media_type, tmdb_id):
+            data = await super().details(media_type, tmdb_id)
+            details_langs.append(data.get("original_language"))
+            return data
+
+    args = argparse.Namespace(
+        mode="bootstrap", types=["movie"], limit=None, new_cap=50,
+        active_pages=1, max_pages=1, rate=50.0, concurrency=8, batch=8, model="x",
+        recreate=False, dry_run=False, stats_out=None,
+        tmdb_token="t", qdrant_url="http://x", qdrant_key="k",
+        decades=[2020], year_from=None, year_to=None, recent_only=False,
+        no_recent_pass=True, min_votes=None, sort_by="vote_count.desc",
+        langs=["en", "ja"],
+    )
+
+    monkeypatch.setattr(sync_tmdb, "TMDBClient", lambda *a, **k: RecordingTMDB())
+    monkeypatch.setattr(sync_tmdb, "QdrantClient", lambda *a, **k: FakeQdrant())
+    monkeypatch.setattr(sync_tmdb, "Embedder", lambda *a, **k: FakeEmbedder())
+
+    _run(sync_tmdb.bootstrap(args))
+
+    requested = [c.get("with_original_language") for c in discover_calls
+                 if c["media_type"] == "movie"]
+    assert "en" in requested, f"English pass missing: {discover_calls}"
+    assert "ja" in requested, f"Japanese pass missing: {discover_calls}"
+
+
+def test_bootstrap_english_only_never_filters_language(monkeypatch):
+    """A plain `--langs en` run must behave like the original English crawl."""
+    import argparse
+
+    discover_calls: list[dict] = []
+
+    class RecordingTMDB(FakeTMDB):
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def discover(self, media_type, page, **kwargs):
+            discover_calls.append({"media_type": media_type, "page": page, **kwargs})
+            return await super().discover(media_type, page, **kwargs)
+
+    args = argparse.Namespace(
+        mode="bootstrap", types=["movie"], limit=None, new_cap=50,
+        active_pages=1, max_pages=1, rate=50.0, concurrency=8, batch=8, model="x",
+        recreate=False, dry_run=False, stats_out=None,
+        tmdb_token="t", qdrant_url="http://x", qdrant_key="k",
+        decades=[2020], year_from=None, year_to=None, recent_only=False,
+        no_recent_pass=True, min_votes=None, sort_by="vote_count.desc",
+        langs=["en"],
+    )
+
+    monkeypatch.setattr(sync_tmdb, "TMDBClient", lambda *a, **k: RecordingTMDB())
+    monkeypatch.setattr(sync_tmdb, "QdrantClient", lambda *a, **k: FakeQdrant())
+    monkeypatch.setattr(sync_tmdb, "Embedder", lambda *a, **k: FakeEmbedder())
+
+    _run(sync_tmdb.bootstrap(args))
+
+    langs = {c.get("with_original_language") for c in discover_calls}
+    assert langs == {"en"}, f"English-only crawl sent {langs}"
 
 
 def test_recency_pass_also_uses_known_set():

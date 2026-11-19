@@ -11,6 +11,18 @@ on:
         description: "movie, series, or both"
         required: false
         default: "movie series"
+      langs:
+        description: "ISO-639-1 codes to crawl, space separated (e.g. 'en ja ko'). 'en' only = English-only catalog."
+        required: false
+        default: "en"
+      rate:
+        description: "TMDB requests/second (ceiling is ~40; leave at 30 for headroom)"
+        required: false
+        default: "30"
+      concurrency:
+        description: "in-flight TMDB requests (the pacer still caps the rate)"
+        required: false
+        default: "16"
 
 jobs:
   bootstrap:
@@ -29,7 +41,19 @@ jobs:
         run: |
           LIMIT_ARG=""
           if [ -n "${{ inputs.limit }}" ]; then LIMIT_ARG="--limit ${{ inputs.limit }}"; fi
-          python jobs/sync_tmdb.py --mode bootstrap --types ${{ inputs.types }} $LIMIT_ARG \
+          LANGS="${{ inputs.langs }}"
+          if [ -z "$LANGS" ]; then LANGS="en"; fi
+          RATE="${{ inputs.rate }}"
+          if [ -z "$RATE" ]; then RATE="30"; fi
+          CONCURRENCY="${{ inputs.concurrency }}"
+          if [ -z "$CONCURRENCY" ]; then CONCURRENCY="16"; fi
+          echo "crawling langs=[$LANGS] rate=${RATE}/s concurrency=$CONCURRENCY"
+          python jobs/sync_tmdb.py --mode bootstrap \
+            --types ${{ inputs.types }} \
+            --langs $LANGS \
+            --rate "$RATE" \
+            --concurrency "$CONCURRENCY" \
+            $LIMIT_ARG \
             --stats-out bootstrap-stats.json
         env:
           TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}

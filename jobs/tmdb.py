@@ -20,7 +20,7 @@ import httpx
 API = "https://api.themoviedb.org/3"
 EXPORTS = "http://files.tmdb.org/p/exports"
 
-DEFAULT_RATE = 15.0          # req/s (PLAN §20 TMDB_PACING)
+DEFAULT_RATE = 30.0          # req/s; TMDB's documented ceiling is ~40 req/s
 MAX_RETRIES = 5
 DETAILS_APPEND = {
     "movie": "credits,keywords,external_ids",
@@ -131,17 +131,47 @@ class TMDBClient:
         return await self.get(f"/discover/{segment}", **params)
 
     async def iter_discover(self, media_type: str, *, max_pages: int = 500,
+                            page_concurrency: int = 6,
                             **kwargs: Any) -> AsyncIterator[dict[str, Any]]:
-        """Yield result objects page by page until TMDB runs out of pages."""
-        for page in range(1, max_pages + 1):
-            data = await self.discover(media_type, page, **kwargs)
-            results = data.get("results") or []
-            if not results:
-                return
-            for item in results:
-                yield item
-            if page >= int(data.get("total_pages") or 1):
-                return
+        """Yield result objects page by page until TMDB runs out of pages.
+
+        Pages are fetched in small concurrent windows instead of strictly
+        one-by-one. `_pace()` still books every request a slot at `rate` req/s and
+        the client retries 429 with `Retry-After`, so the *request rate* is
+        unchanged — the win is that ~200 ms of latency per page stops adding up
+        on a 500-page crawl.
+
+        Page 1 is always fetched alone: it is the only page that reports
+        `total_pages`, and probing it first means a 3-page catalogue costs 3
+        requests instead of a full window of wasted ones.
+        """
+        first = await self.discover(media_type, 1, **kwargs)
+        total_pages = min(max_pages, max(1, int(first.get("total_pages") or 1)))
+        results = first.get("results") or []
+        if not results:
+            return
+        for item in results:
+            yield item
+
+        page = 2
+        while page <= total_pages:
+            window = list(range(page, min(page + page_concurrency, total_pages + 1)))
+            batch = await asyncio.gather(
+                *(self.discover(media_type, p, **kwargs) for p in window),
+                return_exceptions=True)
+            for data in batch:
+                if isinstance(data, BaseException):
+                    # A page that failed after all retries aborts the crawl rather
+                    # than silently skipping a chunk of the catalog (a hole here
+                    # would never be re-fetched, because the titles are missing
+                    # rather than merely un-enriched).
+                    raise data
+                results = data.get("results") or []
+                if not results:
+                    return
+                for item in results:
+                    yield item
+            page += len(window)
 
     async def trending(self, media_type: str, window: str = "week") -> list[dict[str, Any]]:
         segment = "tv" if media_type == "series" else "movie"
