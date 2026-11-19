@@ -88,11 +88,19 @@ def test_history_sends_show_item_level(captured):
 
 
 def test_watchlist_add_shape(captured):
+    """Same rule as history: the item IS the inner object.
+
+    These two assertions previously encoded the buggy nesting as expected
+    behaviour (`{"movies": [{"movie": {...}}]}`), which is why the live
+    libraryAdd kept failing while the suite stayed green. Trakt answers 2xx with
+    the item in `not_found` when the id sits one level too deep.
+    """
     client = _client()
     asyncio.run(client.add_watchlist({"movie": {"ids": {"imdb": "tt1"}}}))
     url, body = captured.calls[-1]
     assert url.endswith("/sync/watchlist")
-    assert body == {"movies": [{"movie": {"ids": {"imdb": "tt1"}}}]}
+    assert body == {"movies": [{"ids": {"imdb": "tt1"}}]}
+    assert "movie" not in body["movies"][0], "ids must not be nested under 'movie'"
 
 
 def test_watchlist_remove_shape(captured):
@@ -100,7 +108,8 @@ def test_watchlist_remove_shape(captured):
     asyncio.run(client.remove_watchlist({"show": {"ids": {"imdb": "tt2"}}}))
     url, body = captured.calls[-1]
     assert url.endswith("/sync/watchlist/remove"), "remove is a POST to /remove"
-    assert body == {"shows": [{"show": {"ids": {"imdb": "tt2"}}}]}
+    assert body == {"shows": [{"ids": {"imdb": "tt2"}}]}
+    assert "show" not in body["shows"][0], "ids must not be nested under 'show'"
 
 
 def test_identifying_user_agent_is_sent(captured):

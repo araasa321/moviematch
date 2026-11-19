@@ -158,14 +158,26 @@ class TraktClient:
         return await self._post("/sync/history", {f"{key}s": [inner]})
 
     async def add_watchlist(self, media: dict[str, Any]) -> dict[str, Any]:
-        """POST /sync/watchlist — add to watchlist (Trakt answers 201)."""
-        return await self._post("/sync/watchlist",
-                                {"movies": [media]} if "movie" in media else {"shows": [media]})
+        """POST /sync/watchlist — add to watchlist (Trakt answers 201).
+
+        Unwrap `media` exactly like `add_history` does. The watchlist body wants
+        the INNER object:
+            {"movies": [{"ids": {"imdb": "tt..."}}]}
+        Passing the wrapper instead sends {"movies": [{"movie": {...}}]}, which
+        Trakt accepts with a 2xx while reporting the item in `not_found` — the id
+        sits one level too deep, so nothing is written and nothing errors. That
+        was the live "libraryAdd NOT applied" failure.
+        """
+        key = "movie" if "movie" in media else "show"
+        return await self._post("/sync/watchlist", {f"{key}s": [dict(media[key])]})
 
     async def remove_watchlist(self, media: dict[str, Any]) -> dict[str, Any]:
-        """POST /sync/watchlist/remove — note: a POST to /remove, not a DELETE."""
-        return await self._post("/sync/watchlist/remove",
-                                {"movies": [media]} if "movie" in media else {"shows": [media]})
+        """POST /sync/watchlist/remove — note: a POST to /remove, not a DELETE.
+
+        Same unwrapping rule as `add_watchlist`; see the comment there.
+        """
+        key = "movie" if "movie" in media else "show"
+        return await self._post("/sync/watchlist/remove", {f"{key}s": [dict(media[key])]})
 
     async def health(self) -> dict[str, Any]:
         if not self.config.configured:

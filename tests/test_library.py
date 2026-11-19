@@ -53,6 +53,116 @@ def run(coro):
 
 def test_actions_are_the_three_we_support():
     assert SUPPORTED_ACTIONS == ("libraryAdd", "libraryRemove", "watched")
+
+
+# ------------------------------------------------- real request-body shape
+# FakeTrakt above stops at the `add_watchlist(media)` boundary, so it records the
+# {"movie": {...}} WRAPPER and cannot see what actually goes on the wire. That is
+# why a double-wrapped watchlist body shipped while every test passed: the fake
+# and the bug agreed with each other. These tests drive the real TraktClient and
+# assert the literal JSON body.
+
+class _RecordingTransport:
+    """Captures the JSON body of every request the real client sends."""
+
+    def __init__(self, response_body: dict) -> None:
+        self.sent: list[tuple[str, dict]] = []
+        self.response_body = response_body
+
+    def install(self, monkeypatch):
+        import httpx
+
+        import addon.trakt as trakt_mod
+
+        real_client = httpx.AsyncClient
+
+        def factory(*args, **kwargs):
+            async def handler(request):
+                payload = json.loads(request.content) if request.content else {}
+                self.sent.append((request.url.path, payload))
+                return httpx.Response(201, json=self.response_body)
+
+            kwargs["transport"] = httpx.MockTransport(handler)
+            return real_client(*args, **kwargs)
+
+        monkeypatch.setattr(trakt_mod.httpx, "AsyncClient", factory)
+        return self
+
+
+@pytest.fixture()
+def real_trakt(monkeypatch):
+    from addon.trakt import TraktClient, TraktConfig
+
+    def build(body):
+        client = TraktClient(TraktConfig(access_token="token", client_id="cid"))
+        recorder = _RecordingTransport(body).install(monkeypatch)
+        return client, recorder
+    return build
+
+
+def test_watchlist_add_sends_inner_object_not_the_wrapper(real_trakt):
+    """The exact bug: {"movies": [{"movie": {...}}]} resolves to not_found.
+
+    Trakt wants the inner media object. Sending the wrapper puts the id one level
+    too deep, so Trakt answers 2xx with the item in `not_found` and silently
+    writes nothing.
+    """
+    client, recorder = real_trakt({"added": {"movies": 1}, "existing": {"movies": 0},
+                                   "not_found": {"movies": []}})
+
+    result = run(handle_library_event(client, "movie", "tt15671028", "libraryAdd"))
+
+    path, body = recorder.sent[0]
+    assert path == "/sync/watchlist"
+    assert body == {"movies": [{"ids": {"imdb": "tt15671028"}}]}, (
+        f"body must be the INNER object; got {body}")
+    assert "movie" not in body["movies"][0], "double-wrapped media object"
+    assert result.ok is True
+
+
+def test_watchlist_add_series_uses_shows_key(real_trakt):
+    client, recorder = real_trakt({"added": {"shows": 1}, "existing": {"shows": 0},
+                                   "not_found": {"shows": []}})
+
+    run(handle_library_event(client, "series", "tt0903747", "libraryAdd"))
+
+    path, body = recorder.sent[0]
+    assert path == "/sync/watchlist"
+    assert body == {"shows": [{"ids": {"imdb": "tt0903747"}}]}, body
+
+
+def test_watchlist_remove_sends_inner_object(real_trakt):
+    client, recorder = real_trakt({"deleted": {"movies": 1},
+                                   "not_found": {"movies": []}})
+
+    run(handle_library_event(client, "movie", "tt1375666", "libraryRemove"))
+
+    path, body = recorder.sent[0]
+    assert path == "/sync/watchlist/remove"
+    assert body == {"movies": [{"ids": {"imdb": "tt1375666"}}]}, body
+    assert "movie" not in body["movies"][0]
+
+
+def test_history_sends_inner_object_with_watched_at(real_trakt):
+    """The reference shape the watchlist calls must now match."""
+    client, recorder = real_trakt({"added": {"movies": 1}, "updated": {"movies": 0},
+                                   "not_found": {"movies": []}})
+
+    run(handle_library_event(client, "movie", "tt0468569", "watched"))
+
+    path, body = recorder.sent[0]
+    assert path == "/sync/history"
+    assert body == {"movies": [{"ids": {"imdb": "tt0468569"}, "watched_at": "now"}]}, body
+
+
+def test_episode_event_sends_only_the_show_id(real_trakt):
+    client, recorder = real_trakt({"added": {"shows": 1}, "updated": {"shows": 0},
+                                   "not_found": {"shows": []}})
+
+    run(handle_library_event(client, "series", "tt0903747:1:2", "watched"))
+
+    _, body = recorder.sent[0]
+    assert body == {"shows": [{"ids": {"imdb": "tt0903747"}, "watched_at": "now"}]}, body
     assert "unwatched" not in SUPPORTED_ACTIONS
 
 

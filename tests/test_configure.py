@@ -245,16 +245,38 @@ def test_page_binds_a_relative_fetch_endpoint(client):
     assert '"/configure.json"' in body, body[-900:]
 
 
-def test_no_absolute_url_leaks_into_the_page_script(client):
-    """No absolute URL may appear in the script block.
+def test_the_fetch_endpoint_is_not_absolute(client):
+    """The fetch target must be origin-relative.
 
-    This is the exact shape of the Mixed Content bug: the script held an
-    `http://...` URL while the page was served over https.
+    This is the exact shape of the Mixed Content bug: one build bound an
+    `http://<host>/configure.json` URL while the page was served over https, so
+    Chrome blocked every call. The install/manifest URLs elsewhere on the page are
+    deliberately absolute (they are what the user copies into Stremio), so this
+    checks `update_url` specifically rather than every URL in the script.
     """
+    import re
+
     body = client.get("/configure").text
     script = body.split("<script>", 1)[1].split("</script>", 1)[0]
-    assert "http://" not in script, "absolute http:// URL in page script"
-    assert "https://" not in script, "absolute https:// URL in page script"
+    match = re.search(r"endpoint\s*=\s*([^;]+);", script)
+    assert match, "the page must define an `endpoint` variable"
+    value = match.group(1).strip()
+    assert value == '"/configure.json"', (
+        f"endpoint must be a bare relative path, got {value}")
+
+
+def test_page_script_has_no_http_host_literals(client):
+    """No hardcoded http:// host may appear in the page script.
+
+    The Mixed Content failure came from a script that embedded an http:// origin.
+    Comments mentioning the scheme are fine; a URL with a host is not.
+    """
+    import re
+
+    body = client.get("/configure").text
+    script = body.split("<script>", 1)[1].split("</script>", 1)[0]
+    http_urls = re.findall(r"[\"']http://[^\"']+[\"']", script)
+    assert not http_urls, f"http:// URL literal(s) in page script: {http_urls}"
 
 
 def test_install_link_is_still_https_upgraded(client):
