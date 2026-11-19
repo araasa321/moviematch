@@ -190,7 +190,7 @@ def test_per_type_limit_lets_both_types_run(monkeypatch):
 
     args = argparse.Namespace(
         mode="bootstrap", types=["movie", "series"], limit=1, new_cap=50,
-        active_pages=1, max_pages=1, rate=50.0, batch=8, model="x",
+        active_pages=1, max_pages=1, rate=50.0, concurrency=8, batch=8, model="x",
         recreate=False, dry_run=False, stats_out=None,
         tmdb_token="t", qdrant_url="http://x", qdrant_key="k",
         decades=[2020], year_from=None, year_to=None, recent_only=True,
