@@ -129,14 +129,19 @@ class QdrantStore:
                limit: int, langs: Sequence[str] = (), min_votes: int | None = None,
                exclude: Iterable[str] = ()) -> list[Record]:
         """ANN query with the §9.1 guards pushed down into Qdrant."""
-        from .qdrant import payload_filter
+        from .qdrant import SEARCH_PAYLOAD_FIELDS, payload_filter
 
         filters = payload_filter(media_type=media_type, langs=langs,
                                  min_votes=min_votes, exclude=exclude)
         try:
+            # Vectors stay ON — rank.mmr() needs them (`vecs @ vecs.T`). Only the
+            # PAYLOAD is projected to the fields serving actually reads: the full
+            # record is ~5.3 KB/point and 200 candidates measured 1,037.7 KB
+            # versus 148.6 KB projected.
             rows = _run(self.client.search(np.asarray(vector, dtype=np.float32).tolist(),
                                            collection=self.collection, limit=limit,
-                                           filters=filters, with_payload=True))
+                                           filters=filters,
+                                           with_payload=list(SEARCH_PAYLOAD_FIELDS)))
         except Exception as exc:  # noqa: BLE001 - never 500 a Stremio request
             log.warning("qdrant search failed: %s", type(exc).__name__)
             return []

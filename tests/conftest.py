@@ -11,6 +11,25 @@ from addon.memory_store import MemoryStore, load_records_from_json  # noqa: E402
 from addon.rows import build_user_state  # noqa: E402
 
 
+def project_payload(payload: dict, with_payload) -> dict:
+    """Emulate Qdrant's `with_payload` selector for the fake clients.
+
+    Every fake `search()` used to return the WHOLE payload whatever was asked
+    for, so no existing test could notice a field being dropped from the #2b
+    allowlist. Honouring a list here means all ~290 row/rank tests now run
+    against a projected payload: if a ranking term silently depends on a dropped
+    field, the test that exercises it fails immediately instead of degrading in
+    production only.
+
+    `True` / `False` keep their old meaning here. `False` still returns the
+    payload because that is what the existing scroll paths expect — do not
+    change those.
+    """
+    if isinstance(with_payload, (list, tuple)):
+        return {k: v for k, v in payload.items() if k in with_payload}
+    return payload
+
+
 @pytest.fixture(scope="session")
 def fixture_catalog():
     return catalog(dim=384)

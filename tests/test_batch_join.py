@@ -13,6 +13,8 @@ from addon.ids import point_id
 from addon.rows import build_row
 from addon.store import QdrantStore, Record
 
+from .conftest import project_payload
+
 
 class CountingClient:
     def __init__(self, tmdb_ids: list[int]) -> None:
@@ -41,9 +43,10 @@ class CountingClient:
         self.scroll_calls += 1
         return []
 
-    async def search(self, vector, *, limit=200, filters=None, **_):
+    async def search(self, vector, *, limit=200, filters=None, with_payload=True, **_):
         self.search_calls += 1
-        return [{"id": r.point_id, "vector": r.vector.tolist(), "payload": r.payload}
+        return [{"id": r.point_id, "vector": r.vector.tolist(),
+                 "payload": project_payload(r.payload, with_payload)}
                 for r in self.records[:limit]]
 
 

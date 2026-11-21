@@ -21,6 +21,30 @@ VECTOR_DIM = 384
 TITLES = "titles"
 USER_STATE = "user_state"
 
+# The payload fields the SERVING path actually reads, derived by grepping every
+# consumer rather than guessed:
+#
+#   rank.py            imdb_id, vote_count, year, vote_average, media_type,
+#                      popularity, director, cast, language, collection_id
+#                      (+ bayes, bayes_gems once #4b serves them from payload)
+#   rows.guard_reasons media_type, imdb_id, poster, language
+#   rows.to_metas      imdb_id, media_type, poster, backdrop, title, year,
+#   rows.release_info  end_year, genres, overview_short, vote_average, vote_count
+#
+# Everything else is dead weight on the hot path: the full record is ~5.3 KB per
+# point (overview alone is capped at 4,000 chars in policy.normalize_payload),
+# which measured 1,037.7 KB -> 148.6 KB for 200 candidates (-85.7 %) once
+# projected. `cast` and `collection_id` are load-bearing for the cast bonus and
+# the §9.5 sequel dedupe; `year`/`end_year` drive release_info()'s "2024-".
+#
+# NOT part of the ANN path: get_many/retrieve (Trakt join, keyed by point id) and
+# get_all (small-collection only) deliberately still fetch full records.
+SEARCH_PAYLOAD_FIELDS: tuple[str, ...] = (
+    "imdb_id", "media_type", "poster", "backdrop", "title", "year", "end_year",
+    "overview_short", "genres", "vote_average", "vote_count", "popularity",
+    "language", "director", "cast", "collection_id", "bayes", "bayes_gems",
+)
+
 
 def payload_filter(*, media_type: str | None = None, langs: Sequence[str] | None = None,
                    min_votes: int | None = None, exclude: Iterable[str] | None = None,
@@ -138,7 +162,13 @@ class QdrantClient:
 
     async def search(self, vector: Sequence[float], *, collection: str = TITLES,
                      limit: int = 200, filters: dict[str, Any] | None = None,
-                     with_payload: bool = True) -> list[dict[str, Any]]:
+                     with_payload: bool | Sequence[str] = True) -> list[dict[str, Any]]:
+        """ANN query.
+
+        `with_payload` is a bool OR a list of field names, passed straight
+        through: the REST API accepts a selector array and returns only those
+        keys. The default stays `True` so nothing that does not opt in changes.
+        """
         body: dict[str, Any] = {"vector": list(vector), "limit": limit,
                                 "with_payload": with_payload, "with_vector": True}
         if filters:

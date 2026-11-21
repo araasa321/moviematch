@@ -12,6 +12,8 @@ from addon.ids import point_id
 from addon.main import make_app
 from addon.store import QdrantStore, Record
 
+from .conftest import project_payload
+
 
 class _Client:
     """Just enough Qdrant for make_app + QdrantStore."""
@@ -31,12 +33,15 @@ class _Client:
         return [{"id": r.point_id, "vector": r.vector.tolist(), "payload": r.payload}
                 for r in self.records]
 
-    async def search(self, vector, *, limit=200, filters=None, **_):
+    async def search(self, vector, *, limit=200, filters=None, with_payload=True, **_):
+        self.last_with_payload = with_payload
+        self.last_with_vector = True
         q = np.asarray(vector, dtype=np.float32)
         q = q / (np.linalg.norm(q) or 1.0)
         scored = [(float((r.vector / np.linalg.norm(r.vector)) @ q), r) for r in self.records]
         scored.sort(key=lambda pair: -pair[0])
-        return [{"id": r.point_id, "vector": r.vector.tolist(), "payload": r.payload}
+        return [{"id": r.point_id, "vector": r.vector.tolist(),
+                 "payload": project_payload(r.payload, with_payload)}
                 for _, r in scored[:limit]]
 
 

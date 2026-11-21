@@ -19,6 +19,7 @@ from addon.ids import point_id
 from addon.main import make_app
 from addon.store import QdrantStore, Record
 
+from .conftest import project_payload
 from .conftest import *  # noqa: F401,F403
 
 SECRET = "a692606ccbd8a6e1aa2427bcb7791857d28d21bf689cb3837c452dbabdd2e0"
@@ -40,8 +41,9 @@ class _CountingClient:
         return [{"id": r.point_id, "vector": r.vector.tolist(), "payload": r.payload}
                 for r in self.records]
 
-    async def search(self, vector, *, limit=200, filters=None, **_):
-        return [{"id": r.point_id, "vector": r.vector.tolist(), "payload": r.payload}
+    async def search(self, vector, *, limit=200, filters=None, with_payload=True, **_):
+        return [{"id": r.point_id, "vector": r.vector.tolist(),
+                 "payload": project_payload(r.payload, with_payload)}
                 for r in self.records[:limit]]
 
 

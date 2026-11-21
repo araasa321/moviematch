@@ -11,6 +11,8 @@ from addon.ids import point_id
 from addon.rows import build_row
 from addon.store import QdrantStore, Record
 
+from .conftest import project_payload
+
 
 def _vec(*values: float, dim: int = 8) -> np.ndarray:
     out = np.zeros(dim, dtype=np.float32)
@@ -49,7 +51,7 @@ class FakeReadClient:
         return [{"id": r.point_id, "vector": r.vector.tolist(), "payload": r.payload}
                 for r in self.records]
 
-    async def search(self, vector, *, limit=200, filters=None, **kwargs):
+    async def search(self, vector, *, limit=200, filters=None, with_payload=True, **kwargs):
         self.searched += 1
         q = np.asarray(vector, dtype=np.float32)
         q = q / (np.linalg.norm(q) or 1.0)
@@ -63,7 +65,8 @@ class FakeReadClient:
                 continue
             scored.append((float(v @ q), r))
         scored.sort(key=lambda pair: -pair[0])
-        return [{"id": r.point_id, "vector": r.vector.tolist(), "payload": r.payload}
+        return [{"id": r.point_id, "vector": r.vector.tolist(),
+                 "payload": project_payload(r.payload, with_payload)}
                 for _, r in scored[:limit]]
 
 
