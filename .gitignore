@@ -4,6 +4,8 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+# throwaway health-check env used to verify requirements.txt pins (M0)
+.venv-check/
 
 # Model weights (re-fetch with eval/fetch_onnx.py)
 eval/model/

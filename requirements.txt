@@ -1,8 +1,17 @@
 # runtime dependencies — HARD RULE: no ML libraries at serve time (PLAN §0.2 / §11.1)
-fastapi
-uvicorn
-httpx
-numpy
-jinja2
-cryptography
-tenacity
+#
+# Pinned ranges, not floating. `addon/main.py` calls
+# `Jinja2Templates.TemplateResponse(request, name, context)`, which is the
+# request-first signature. starlette >= 0.36 accepts it (0.36/0.37 still carry the
+# old form as a deprecated overload); starlette >= 1.0 REMOVES the old form
+# entirely. The floor keeps the call valid and the `<1.0` cap keeps a future
+# starlette major from silently changing it again. Do not re-add a
+# `try/except TypeError` shim: pinning is what makes test, Docker and prod agree.
+fastapi>=0.115,<1.0
+starlette>=0.37,<1.0
+uvicorn>=0.30,<1.0
+httpx>=0.27,<1.0
+numpy>=1.26,<3.0
+jinja2>=3.1,<4.0
+cryptography>=42,<47
+tenacity>=8.2,<10.0

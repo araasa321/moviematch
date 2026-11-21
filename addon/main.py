@@ -280,9 +280,13 @@ def make_app(store: Any | None = None,
         offered_codes = {lang.code for lang in detected}
         selected = [code for code in DEFAULT_LANGS if code in offered_codes] or list(
             DEFAULT_LANGS)
-        # starlette >= 1.0 takes `request` positionally and a context dict
-        # WITHOUT a "request" key; the old (name, {"request": ...}) form raises
-        # "unhashable type: 'dict'" because it reads the dict as the template name.
+        # starlette >= 0.36 takes `request` first, with a context dict that does
+        # NOT need a "request" key. This is the signature `requirements.txt`
+        # pins for (`starlette>=0.37,<1.0`): 0.36/0.37 still accept the old
+        # (name, {"request": ...}) form as a deprecated overload, and 1.0.0
+        # removed it outright. Under starlette 0.27 this call raised
+        # `ValueError: context must include a "request" key`, which is why the
+        # suite needs the pin. Do not "fix" this back to the old shape.
         return _templates().TemplateResponse(request, "configure.html", {
             "langs": detected,
             "detected": language_detector.available,

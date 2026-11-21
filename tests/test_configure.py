@@ -161,6 +161,25 @@ def test_configure_page_renders_real_controls(client):
     assert "English" in body and "Separate rows" in body
 
 
+def test_configure_page_renders(client):
+    """Regression guard for the starlette TemplateResponse signature drift.
+
+    The call is `TemplateResponse(request, name, context)`, which only exists from
+    starlette 0.36 on. Under starlette 0.27 it raised
+    `ValueError: context must include a "request" key` — a 500 that the httpx
+    transport surfaced as 8 red tests. Crucially the old form does NOT raise when
+    rendering succeeds (it renders, just from the wrong arguments), so this test
+    asserts the rendered language-checkbox markup rather than only the status
+    code: a future signature drift has to fail loudly here.
+    """
+    page = client.get("/configure")
+    assert page.status_code == 200, page.text[:400]
+    body = page.text
+    # The checkboxes are emitted by the template loop over detected languages.
+    assert 'type="checkbox"' in body
+    assert body.lower().count('type="checkbox"') >= 1
+
+
 def test_configure_page_lists_every_detected_language(client):
     """Which languages appear is decided by the catalog, not a hardcoded list.
 
