@@ -13,6 +13,7 @@ Run locally against the fixture catalog:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -47,6 +48,15 @@ VALID_ROWS = {"foryou", "because", "new4you"}
 VALID_TYPES = {"movie", "series"}
 DEV_SECRET = "dev-secret-please-set-INSTALL_SECRET"
 ROW_CACHE_SECONDS = 900          # §11.3 catalogs: 900 s
+# A row that is legitimately empty (cold start, thin catalogue, unknown genre,
+# unavailable language) used to be recomputed on EVERY request, forever, because
+# _cached_plan only cached `if plan.ranked`. Remember the empty answer briefly
+# instead: long enough to absorb a home-screen open (which fans out to up to 12
+# catalogs at once), short enough that a crawl finishing mid-session is noticed.
+EMPTY_PLAN_TTL = 120.0
+# Short by design: a cache entry must not outlive one ranking cycle, so a user who
+# fixes a bad Trakt token sees the effect within minutes, not after ROW_CACHE_SECONDS.
+HISTORY_TTL = 600.0
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 log = logging.getLogger(__name__)
@@ -104,7 +114,17 @@ def make_app(store: Any | None = None,
         languages = LanguageDetector(QdrantClient(qdrant_cfg)
                                      if qdrant_cfg.configured else None)
     started = datetime.now(timezone.utc)
-    row_cache: dict[tuple, tuple[float, RowPlan]] = {}
+    # (saved_at, plan, ttl) — ttl is per-entry because an empty plan is cached
+    # for EMPTY_PLAN_TTL while a populated one lives for ROW_CACHE_SECONDS.
+    row_cache: dict[tuple, tuple[float, RowPlan, float]] = {}
+    # Process-wide, not per-request. `trakt.fetch_user_state()` does up to
+    # history x2 + ratings x2 + watchlist x2, each paginated 100/page up to 10
+    # pages. build_manifest advertises up to 12 catalogs and Stremio fetches them
+    # together on a cold home-screen open, so without this lock a cold instance
+    # fires up to 12 concurrent full Trakt syncs.
+    history_lock = asyncio.Lock()
+    history_cache: dict[str, Any] = {}
+    history_is_fallback = False
 
     app = FastAPI(title="MovieMatch", version=__version__)
     # Stremio Web (web.stremio.com) fetches manifests/catalogs CROSS-ORIGIN.
@@ -125,17 +145,52 @@ def make_app(store: Any | None = None,
     app.state.languages = languages
     language_detector = languages
 
-    async def current_history() -> dict[str, Any]:
-        """Trakt when configured; the bundled fixture otherwise. Never raises."""
-        if trakt.config.configured:
+    async def _sync_history() -> dict[str, Any]:
+        """Real Trakt sync. Raises on failure — the caller decides what to do."""
+        return await trakt.fetch_user_state()
+
+    async def current_history() -> tuple[dict[str, Any], bool]:
+        """Trakt history, singleflighted. Never raises.
+
+        Returns `(history, is_fallback)`.
+
+        `is_fallback` is True when the returned history is NOT the user's real
+        Trakt state — either the Trakt sync failed and we served the bundled
+        fixture, or there is no history provider at all. Callers that cache
+        anything derived from history MUST honour it: a single transient Trakt
+        error must not pin fake recommendations on the user's home screen.
+
+        Concurrency: concurrent callers share ONE in-flight sync. The lock is held
+        across exactly one `await _sync_history()` with no nested awaits, so it
+        cannot deadlock. Callers are re-checked against the cache after acquiring
+        the lock (double-checked locking): request 2..12 wake up, see the entry
+        request 1 just wrote, and return immediately.
+
+        The fixture fallback deliberately does NOT write `history_cache` — a bad
+        token would otherwise pin a fake 3-title history for HISTORY_TTL.
+        """
+        nonlocal history_is_fallback
+        if history_provider is not None:           # tests inject a plain callable
+            return history_provider(), False
+        if not trakt.config.configured:
+            return trakt_history(), True
+        async with history_lock:
+            fresh = history_cache.get("value")
+            if fresh is not None and time.monotonic() - history_cache["at"] < HISTORY_TTL:
+                return fresh, history_is_fallback
             try:
-                return await trakt.fetch_user_state()
-            except Exception as exc:  # noqa: BLE001 - fall back, don't 500 Stremio
+                data = await _sync_history()
+            except Exception as exc:                # noqa: BLE001 - never 500 Stremio
                 log.warning("trakt sync failed (%s); serving fixture history",
                             type(exc).__name__)
-        return history_provider() if history_provider else trakt_history()
+                history_is_fallback = True
+                return trakt_history(), True
+            history_cache.update(value=data, at=time.monotonic())
+            history_is_fallback = False
+            return data, False
 
     app.state.history_provider = current_history
+    app.state.history_cache = history_cache
 
     def current_secret() -> str:
         return os.environ.get("INSTALL_SECRET") or DEV_SECRET
@@ -192,6 +247,11 @@ def make_app(store: Any | None = None,
             "store_size": store_size,
             "row_cache_size": len(row_cache),
             "row_cache_keys": sorted("/".join(k) for k in row_cache),
+            "history_cached": bool(history_cache),
+            # True while serving the bundled fixture because the Trakt sync is
+            # failing or unconfigured — a stuck/blind sync is visible here without
+            # a deep probe. No new I/O.
+            "history_is_fallback": history_is_fallback,
             "started_at": started.isoformat(),
             "secret_configured": current_secret() != DEV_SECRET,
         }
@@ -199,7 +259,7 @@ def make_app(store: Any | None = None,
     @app.get("/health/deep")
     async def health_deep() -> dict[str, Any]:
         """Expensive diagnostics: Trakt sync + ranking. Never polled by Koyeb."""
-        history = await current_history()
+        history, _ = await current_history()
         started_at = time.monotonic()
         plan = build_row(store, history, "movie", "foryou", Config())
         return {
@@ -393,7 +453,7 @@ def make_app(store: Any | None = None,
         config, error = load_config(config_blob)
         if error is not None:
             return error
-        history = await current_history()
+        history, _ = await current_history()
         seeds = _seed_names(store, history, config)
         payload = build_manifest(base_url(request), config_blob, seeds,
                                  langs=config.langs, layout=config.layout)
@@ -423,7 +483,7 @@ def make_app(store: Any | None = None,
 
     async def _cached_plan(config: Config, media_type: str, row: str,
                            genre: str = "", lang: str = "") -> RowPlan:
-        """Rank once per (row, type, mode, genre, lang) and reuse for ~15 min (§11.3).
+        """Rank once per (row, type, mode, genre, lang) and reuse (§11.3).
 
         Ranking 70k titles on every Stremio request would blow the client's ~10 s
         timeout on a cold Koyeb instance; the cache makes only the FIRST request
@@ -433,19 +493,40 @@ def make_app(store: Any | None = None,
         genre a user picked was cached and served for every other genre too.
         `lang` belongs in the key for the same reason — otherwise the merged row
         and every per-language row would collide on one cache entry.
+
+        Two cache lifetimes:
+          * a plan with results  -> ROW_CACHE_SECONDS (15 min)
+          * an EMPTY plan        -> EMPTY_PLAN_TTL (2 min)
+
+        An empty plan is a real answer (no history yet, thin catalogue, unknown
+        genre, disabled language). Previously it was not cached at all, so every
+        Stremio request re-ran the full pipeline — Qdrant ANN included — forever.
+
+        A plan built from FALLBACK history is never cached, at any lifetime: see
+        the comment at the `is_fallback` branch.
         """
         key = (row, media_type, config.mode, (genre or "").strip().casefold(),
                (lang or "").strip().casefold())
         now = time.monotonic()
         cached = row_cache.get(key)
-        if cached and now - cached[0] < ROW_CACHE_SECONDS:
-            return cached[1]
-        history = await current_history()
+        if cached is not None:
+            saved_at, saved_plan, ttl = cached
+            if now - saved_at < ttl:
+                return saved_plan
+        history, is_fallback = await current_history()
         plan = build_row(store, history, media_type, row, config,
                          genre=genre or None, lang=lang or None)
-        # a transient failure must not be cached for 15 minutes
-        if plan.ranked:
-            row_cache[key] = (now, plan)
+        if is_fallback:
+            # A 1-second Trakt blip must not pin three fixture titles on the
+            # user's home screen for ROW_CACHE_SECONDS. Not writing the fixture
+            # into history_cache is necessary but NOT sufficient: the RowPlan
+            # built from it would still be cached for 15 minutes. Skipping the
+            # write is the actual guarantee.
+            return plan
+        # An empty plan is a real answer (cold start, thin catalogue, unknown
+        # genre, disabled language). Caching it briefly is what stops it being
+        # recomputed in full on every Stremio request, forever.
+        row_cache[key] = (now, plan, ROW_CACHE_SECONDS if plan.ranked else EMPTY_PLAN_TTL)
         return plan
 
     # ------------------------------------------------- library events (writes)
