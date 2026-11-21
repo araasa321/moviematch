@@ -233,10 +233,18 @@ async def main(dry_run: bool) -> None:
     sample = await fake_tmdb.discover("movie", 1)
     from jobs import policy
     mean = policy.catalog_mean_vote(sample["results"])
-    print(f"  catalog mean vote estimate: {mean}")
+    print(f"  catalog mean vote estimate: {mean} (log line only)")
+    # #4b: the stratified prior is computed over the whole catalog payloads and
+    # threaded into apply_quality, so the offline path exercises the real thing
+    # rather than the module defaults.
+    stats_by_stratum = policy.bayes_stats(payloads.values())
+    print("  stratified bayes: " + ", ".join(
+        f"{k[0]}/{k[1]} C={v[0]} m={v[1]} m_gems={v[2]}"
+        for k, v in sorted(stats_by_stratum.items())))
     pid = point_id("movie", 155)
     merged = {**payloads[pid], **{"vote_average": 8.6, "vote_count": 33000}}
-    policy.apply_quality(merged, mean)
+    policy.apply_quality(merged, mean, stats=stats_by_stratum)
+    assert merged["bayes"] > 0 and merged["bayes_gems"] > 0, "bayes must never be unset"
     print(f"  bayes for The Dark Knight: {merged['bayes']} (gems {merged['bayes_gems']})")
 
     # ---- text recipe: title survives truncation ordering

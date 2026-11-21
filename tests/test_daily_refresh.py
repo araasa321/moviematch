@@ -162,12 +162,24 @@ def test_exact_float_grouping_would_have_failed(wired):
 
 
 # ------------------------------------------------- scroll fields
-def test_daily_scrolls_only_popularity(wired):
+def test_daily_scrolls_a_minimal_field_set(wired):
+    """The daily scroll must stay minimal, but no longer popularity-only.
+
+    #4b needs media_type/language/vote_average/vote_count to compute the
+    stratified bayes prior once per run. The point of the projection is that the
+    scroll does not pull full payloads (which made it the slowest part of a 43k
+    run), so assert it asks for exactly the known field set, not a free-for-all.
+    """
     store, client = CountingQdrant(), FakeTMDBWithExport(export_ids=5)
     wired(store, client)
     _run(sync_tmdb.daily(_args(recent_days=0)))
     assert store.scroll_fields, "collection was never scrolled"
-    assert ["popularity"] in store.scroll_fields, store.scroll_fields
+    fields = store.scroll_fields[0]
+    assert "popularity" in fields
+    assert set(fields) == {"popularity", "media_type", "language",
+                           "vote_average", "vote_count"}, fields
+    # Explicitly NOT a full-payload scroll.
+    assert "overview" not in fields and "text_hash" not in fields
 
 
 # ------------------------------------------------- mode dispatch

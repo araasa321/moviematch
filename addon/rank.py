@@ -72,6 +72,28 @@ def bayes_score(vote_average: float, vote_count: float, media_type: str = "movie
     return (v / (v + m)) * r + (m / (v + m)) * mean
 
 
+def bayes_from_payload(payload: dict[str, Any], mode: str = "blockbuster") -> float:
+    """Quality score: the ingest job's stored value when present, else recompute.
+
+    The weekly refresh computes a stratified prior per (media_type, en|non-en) and
+    stores the result in `bayes` / `bayes_gems` (#4b). Serving reads it instead of
+    recomputing from module constants, which used to make the weekly `C` estimate
+    dead on arrival: it was written to the payload and never read.
+
+    The fallback keeps behaviour identical for rows ingested before #4b, or before
+    the first post-#4b `refresh` backfill, so this is safe to deploy first.
+
+    `bayes` is stored rounded to 3 dp at ingest, so a comparison against
+    `bayes_score(...)` needs approx tolerance rather than equality.
+    """
+    key = "bayes_gems" if mode == "gems" else "bayes"
+    value = payload.get(key)
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+        return float(value)
+    return bayes_score(payload.get("vote_average", 0.0), payload.get("vote_count", 0),
+                       payload.get("media_type", "movie"), gems=(mode == "gems"))
+
+
 def reach_score(vote_count: float, popularity: float,
                 vote_p99: float = VOTE_P99, pop_p99: float = POPULARITY_P99) -> float:
     """0.6*log1p(votes) + 0.4*log1p(popularity), each squashed against catalog p99."""
@@ -160,8 +182,7 @@ def rank(
         if cand.similarity < sim_floor:
             continue
         # §9.4 score terms
-        q_score = bayes_score(payload.get("vote_average", 0.0), payload.get("vote_count", 0),
-                              payload.get("media_type", "movie"), gems=(mode == "gems"))
+        q_score = bayes_from_payload(payload, mode)
         reach = reach_score(payload.get("vote_count", 0), payload.get("popularity", 0))
         era = era_score(payload.get("year"), year_seed)
         director = 1.0 if seed_director and payload.get("director") == seed_director else 0.0

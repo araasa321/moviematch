@@ -142,13 +142,19 @@ async def fetch_and_build(client: TMDBClient, media_type: str,
                           known: set[str] | None = None,
                           keep_langs: tuple[str, ...] | None = None,
                           curated: bool = False,
-                          extra: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+                          extra: dict[str, Any] | None = None,
+                          bayes_stats: dict[tuple[str, str], tuple[float, float, float]]
+                          | None = None) -> list[dict[str, Any]]:
     """Details -> normalize -> policy -> text. Embeddings happen in `upsert_ready`.
 
     `known` is the set of point ids already in the collection. They are filtered
     out BEFORE the per-title `/details` call: re-running over an already-filled
     decade used to re-fetch every title just to discard it as a duplicate, which
     made repeat runs slow and burned TMDB quota for nothing.
+
+    `bayes_stats` is the stratified prior from `policy.bayes_stats(...)`; without
+    it, `normalize_payload` writes the module defaults and #4b's stratification
+    never reaches newly ingested titles.
     """
     trakt_ids = trakt_ids or set()
     known = known or set()
@@ -178,7 +184,8 @@ async def fetch_and_build(client: TMDBClient, media_type: str,
             if not enrichable(details):
                 stats.dropped += 1
                 return None
-            payload = policy.normalize_payload(media_type, details, year_now=year_now)
+            payload = policy.normalize_payload(media_type, details, year_now=year_now,
+                                               stats=bayes_stats)
             verdict = policy.should_index(payload, year_now=year_now,
                                           in_trakt=tmdb_id in trakt_ids,
                                           keep_langs=keep_langs, curated=curated)
@@ -591,10 +598,20 @@ async def daily(args: argparse.Namespace) -> Stats:
 
     async with TMDBClient(args.tmdb_token, rate=args.rate,
                                 concurrency=args.concurrency) as client:
-        # Only `popularity` is needed: full payloads made this scroll the slowest
-        # part of the run (43 batches at ~1 s each) purely to learn which ids exist.
-        payloads = (await existing_payloads(qdrant, fields=["popularity"])
+        # `popularity` drives the light refresh; the other four feed
+        # policy.bayes_stats so newly ingested titles get the same stratified
+        # `bayes` as the rest of the catalog (#4b). Without media_type/language/
+        # vote_average/vote_count here, daily() would write module defaults and
+        # the stratification would never reach new titles.
+        stats_fields = ["popularity", "media_type", "language", "vote_average",
+                        "vote_count"]
+        payloads = (await existing_payloads(qdrant, fields=stats_fields)
                     if not args.dry_run else {})
+        # One pass over the catalog; None on a first boot / --dry-run, in which
+        # case apply_quality falls back to the module defaults.
+        # `media_type` is a stored payload field (point ids are opaque uuid5s, so
+        # it cannot be recovered from the id).
+        bayes_stats = policy.bayes_stats(payloads.values()) if payloads else None
 
         for media_type in args.types:
             try:
@@ -637,7 +654,8 @@ async def daily(args: argparse.Namespace) -> Stats:
                                           [row | {"id": tmdb_id} for tmdb_id, row in fresh],
                                           year_now=year_now, stats=stats,
                                           limit=cap, dry_run=args.dry_run,
-                                          keep_langs=getattr(args, "langs", None))
+                                          keep_langs=getattr(args, "langs", None),
+                                          bayes_stats=bayes_stats)
             await upsert_ready(qdrant, embedder, ready, stats,
                                existing=set(payloads), dry_run=args.dry_run)
             payloads.update({point_id(media_type, r["payload"]["tmdb_id"]): r["payload"]
@@ -739,16 +757,26 @@ async def refresh(args: argparse.Namespace) -> Stats:
             async for item in client.iter_discover(media_type, max_pages=args.active_pages,
                                                    sort_by="popularity.desc"):
                 active_sample.append(item)
+        # The stratified prior is computed over the FULL scrolled catalog, not over
+        # `active_sample`. active_sample is the top pages by popularity.desc —
+        # overwhelmingly high-vote English titles — so using it would push
+        # median(vote_count) up for the xx stratum and make the non-English prior
+        # worse than today.
+        stats_by_stratum = policy.bayes_stats(payloads.values())
         mean = policy.catalog_mean_vote(active_sample)
-        log.info("catalog mean vote estimate: %s (from %s titles)",
+        # Kept as a log line only; it must no longer feed apply_quality.
+        log.info("catalog mean vote estimate: %s (from %s titles, log only)",
                  mean, len(active_sample))
+        log.info("stratified bayes: %s", {
+            f"{k[0]}/{k[1]}": f"C={v[0]} m={v[1]} m_gems={v[2]}"
+            for k, v in sorted(stats_by_stratum.items())})
         for item in active_sample:
             media_type = "series" if "first_air_date" in item else "movie"
             pid = point_id(media_type, int(item.get("id") or 0))
             if pid not in payloads:
                 continue
             merged = {**(payloads.get(pid) or {}), **item, "media_type": media_type}
-            policy.apply_quality(merged, mean)
+            policy.apply_quality(merged, mean, stats=stats_by_stratum)
             updates_by_id[pid] = {
                 "vote_average": merged.get("vote_average", 0),
                 "vote_count": merged.get("vote_count", 0),
