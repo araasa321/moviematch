@@ -274,11 +274,10 @@ def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
         seed_director=seed_director,
         seed_cast=seed_cast,
         disliked=taste.dislikes,
-        # `row_langs` (not config.langs) so a per-language row applies the
-        # language mismatch penalty against its OWN language — every candidate
-        # already matches, so the penalty is uniformly zero and does not
-        # re-order the row by accident.
-        langs=row_langs,
+        # Language is NOT passed: `row_langs` was used to build the Qdrant filter
+        # above and `guard_reasons` already dropped every candidate outside it, so
+        # a language term inside rank() could never fire. Language is enforced in
+        # exactly one place — the guard.
         year_now=year_now,
         limit=200,
         ann_limit=ann_limit,

@@ -4,7 +4,24 @@ Nothing here touches the network or any database, so every stage of the funnel
 can be unit-tested against hand-computed fixtures.
 
 Funnel (§9.1):  query vector -> ANN top-200 -> score -> collection dedupe
-                -> MMR diversity -> exploration slots -> top N
+                -> director dedupe -> MMR diversity -> exploration slots -> top N
+
+Score (§9.4) is a WEIGHTED SUM, not `cosine x bayes x mode`:
+
+    score = w_sim * max(0, cos)          # clamped at 0, see below
+          + w_q   * (bayes / 10)         # bayes read from the payload (#4b)
+          + w_r   * reach
+          + w_e   * era
+          + DIRECTOR_BONUS * (director == seed_director)
+          + CAST_BONUS * min(2, |cast overlap|)
+          - dislike_penalty              # 0.30 if cos to a disliked title > 0.8
+
+There is NO language term. Language is a HARD FILTER applied before ranking
+(`rows.guard_reasons`), so a term that could only ever fire on a candidate the
+filter already removed was unreachable — and at 0.20 it was larger than
+DIRECTOR_BONUS, i.e. a landmine for whoever next relaxes the guard. If
+mixed-language *preference weighting* is ever wanted it belongs in a new,
+explicit `lang_bias` term with weight <= 0.05, added on purpose.
 """
 
 from __future__ import annotations
@@ -33,7 +50,6 @@ CAST_BONUS = 0.05
 CAST_BONUS_MAX = 2
 DISLIKE_SIM = 0.8
 DISLIKE_PENALTY = 0.30
-LANG_PENALTY = 0.20
 
 MMR_LAMBDA = 0.7
 MMR_DUP_SIM = 0.90
@@ -142,7 +158,6 @@ def rank(
     seed_director: str = "",
     seed_cast: Iterable[str] = (),
     disliked: np.ndarray | None = None,
-    langs: Sequence[str] = ("en",),
     year_now: int | None = None,
     exploration: Sequence[Candidate] | None = None,
     limit: int = 15,
@@ -187,17 +202,24 @@ def rank(
         era = era_score(payload.get("year"), year_seed)
         director = 1.0 if seed_director and payload.get("director") == seed_director else 0.0
         cast_overlap = len(seed_cast.intersection(payload.get("cast") or ()))
-        lang_miss = 1.0 if payload.get("language") not in set(langs) else 0.0
 
         cand.extras = {"similarity": cand.similarity, "quality": q_score, "reach": reach}
+        # Cosine lives in [-1, 1], so an unclamped similarity term can SUBTRACT
+        # from a score. SIM_FLOOR usually hides that, but `because` rows pass
+        # BECAUSE_SIM_FLOOR and any caller passing sim_floor=0 would score a
+        # candidate at -0.2 below one at 0.0 for no good reason. Clamp the score
+        # term only: cand.similarity / extras["similarity"] keep the raw cosine
+        # so diagnostics stay truthful. Deliberately NOT min-max normalised —
+        # that would force the best item to 1.0 regardless of absolute quality and
+        # turn SIM_FLOOR into dead code.
+        sim_term = max(0.0, cand.similarity)
         cand.score = (
-            w_sim * cand.similarity
+            w_sim * sim_term
             + w_q * (q_score / 10.0)
             + w_r * reach
             + w_e * era
             + DIRECTOR_BONUS * director
             + CAST_BONUS * min(CAST_BONUS_MAX, cast_overlap)
-            - LANG_PENALTY * lang_miss
         )
         pool.append(cand)
 

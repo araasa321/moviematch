@@ -81,7 +81,7 @@ def _cand(pid, vec, **payload):
 def test_rank_drops_low_vote_below_guard_unless_recent():
     old = _cand(1, [1, 0, 0], vote_count=10, year=1999)
     recent = _cand(2, [1, 0, 0], vote_count=10, year=2025)
-    out = rank([1, 0, 0], [old, recent], year_seed=2010, langs=("en",), year_now=2025)
+    out = rank([1, 0, 0], [old, recent], year_seed=2010, year_now=2025)
     ids = {c.point_id for c in out}
     assert "2" in ids and "1" not in ids
 
@@ -90,23 +90,36 @@ def test_rank_drops_missing_imdb_and_low_similarity():
     missing = _cand(1, [1, 0, 0], imdb_id="")
     orthogonal = _cand(2, [0, 1, 0])
     good = _cand(3, [1, 0, 0])
-    out = rank([1, 0, 0], [missing, orthogonal, good], langs=("en",))
+    out = rank([1, 0, 0], [missing, orthogonal, good])
     assert [c.point_id for c in out] == ["3"]
 
 
-def test_rank_language_penalty_orders_english_first():
+def test_rank_ignores_language_because_guards_filter_it():
+    """Deliberate replacement for test_rank_language_penalty_orders_english_first.
+
+    The old test called rank() directly with an unfiltered list — a shape
+    production never produces, because `guard_reasons` drops every candidate
+    outside the row's languages BEFORE ranking. So it was asserting behaviour that
+    could not occur, and the 0.20 LANG_PENALTY it protected was unreachable (and
+    larger than DIRECTOR_BONUS, i.e. a landmine if the guard were ever relaxed).
+
+    rank() is now language-agnostic by design; the test that language is enforced
+    in one place lives in test_language_guard.py.
+    """
     en = _cand(1, [1, 0, 0], language="en")
-    foreign = _cand(2, [1, 0, 0], language="ja")
-    out = rank([1, 0, 0], [foreign, en], langs=("en",))
-    # identical similarity; the -0.20 penalty must move the foreign title below
-    assert out[0].point_id == "1"
+    foreign = _cand(2, [0, 1, 0], language="ja")
+    out = rank([1, 0, 0], [foreign, en], sim_floor=0.0)
+    # Identical quality/reach/era and no language term: both survive, and neither
+    # is pushed down by a penalty. (Orthogonal vectors keep MMR's near-duplicate
+    # cutoff out of the picture.)
+    assert {c.point_id for c in out} == {"1", "2"}
 
 
 def test_rank_collection_caps_at_one_per_collection():
     a = _cand(1, [1, 0, 0], collection_id=263, popularity=100)
     b = _cand(2, [1, 0, 0], collection_id=263, popularity=90)
     c = _cand(3, [1, 0, 0], collection_id=None, popularity=10)
-    out = rank([1, 0, 0], [a, b, c], langs=("en",))
+    out = rank([1, 0, 0], [a, b, c])
     assert sum(1 for cand in out if cand.payload.get("collection_id") == 263) == 1
 
 
