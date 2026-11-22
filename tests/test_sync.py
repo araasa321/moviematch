@@ -98,12 +98,18 @@ def test_nightly_payload_refresh_costs_zero_embeddings(fakes):
 
 
 def test_recipe_survives_long_overview():
-    """The truncation fix: a 4000-char synopsis must not push the title out."""
+    """A 4000-char synopsis must not push the title out of the window.
+
+    Truncation keeps the first MAX_TOKENS pieces, so the title must be in the
+    HEAD, not the tail (the old recipe got this backwards).
+    """
     payload = {"title": "Heat", "director": "Michael Mann",
                "overview": "crime " * 700,
                "genres": ["Crime", "Thriller"], "cast": ["Al Pacino"]}
     text = build_text(payload)
-    assert text.endswith("Heat.")
+    assert "Heat" in " ".join(text.split()[:6])
+    # The overview is bounded, so the whole string stays near the token budget.
+    assert len(text.split()) < 200, len(text.split())
 
 
 def test_cli_dry_run_is_offline():

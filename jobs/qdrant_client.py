@@ -119,11 +119,46 @@ class IngestQdrant:
     # --------------------------------------------------------------- points
     async def upsert(self, points: Sequence[dict[str, Any]], *, wait: bool = False,
                      name: str = TITLES) -> None:
+        """Create-or-REPLACE points.
+
+        DANGER: this is SET semantics. `PUT /points` fully replaces the stored
+        payload with whatever is in the request. Upserting a point whose payload
+        holds only a few fields ERASES every other field on that point — for a
+        maintenance script over the whole catalog, that is a full outage. To
+        change only the vector, use `update_vectors`; to change a few payload
+        fields and keep the rest, use `set_payload` / `set_payload_batch`
+        (both merge keys).
+        """
         if not points:
             return
         await self._request("PUT", f"/collections/{name}/points",
                             {"points": list(points)},
                             params={"wait": "true" if wait else "false"})
+
+    async def update_vectors(self, points: Sequence[tuple[str, Sequence[float]]], *,
+                             wait: bool = False, name: str = TITLES) -> None:
+        """Replace ONLY the vectors of existing points; the payload is untouched.
+
+        Uses POST /collections/{c}/points/vectors, which updates named/unnamed
+        vectors in place. Unlike `upsert` it does not transmit — and therefore
+        cannot overwrite — a payload. This is what the #3 re-embed driver uses.
+        """
+        if not points:
+            return
+        await self._request("POST", f"/collections/{name}/points/vectors",
+                            {"points": [{"id": pid, "vector": list(vec)}
+                                        for pid, vec in points]},
+                            params={"wait": "true" if wait else "false"})
+
+    async def get_point(self, point_id: str, *, name: str = TITLES,
+                        with_payload: bool = True,
+                        with_vector: bool = False) -> dict[str, Any] | None:
+        """Fetch ONE point, used by the re-embed preflight/verification guard."""
+        data = await self._request("POST", f"/collections/{name}/points",
+                                   {"ids": [point_id], "with_payload": with_payload,
+                                    "with_vector": with_vector})
+        points = data.get("result") or []
+        return points[0] if points else None
 
     async def scroll(self, *, name: str = TITLES, limit: int = 1000, offset: Any = None,
                      with_payload: bool | list[str] = True,

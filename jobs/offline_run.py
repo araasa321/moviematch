@@ -158,9 +158,48 @@ class FakeQdrant:
         return None
 
     async def upsert(self, points: list[dict[str, Any]], **_: Any) -> None:
+        # SET semantics, like the real PUT /points: the payload is REPLACED, not
+        # merged. Keep this faithful — the #3 data-loss guard depends on it.
         for point in points:
             self.points[point["id"]] = {"id": point["id"], "payload": point["payload"],
                                         "vector": point["vector"]}
+
+    async def update_vectors(self, points: list[tuple[str, Any]], **_: Any) -> None:
+        """Replace the VECTOR only. Payload must come through untouched."""
+        for pid, vec in points:
+            if pid in self.points:
+                self.points[pid]["vector"] = list(vec)
+            else:
+                raise KeyError(f"update_vectors: unknown point {pid}")
+
+    async def get_point(self, point_id: str, *, with_payload: bool = True,
+                        with_vector: bool = False, **_: Any) -> dict[str, Any] | None:
+        point = self.points.get(point_id)
+        if point is None:
+            return None
+        out: dict[str, Any] = {"id": point_id}
+        if with_payload:
+            out["payload"] = dict(point["payload"])
+        if with_vector:
+            out["vector"] = point["vector"]
+        return out
+
+    async def scroll(self, *, limit: int = 1000, offset: Any = None,
+                     with_payload: Any = True, **_: Any) -> tuple[list[dict[str, Any]], Any]:
+        keys = sorted(self.points)
+        start = keys.index(offset) if offset in self.points else 0
+        window = keys[start:start + limit]
+        out = []
+        for pid in window:
+            payload = dict(self.points[pid]["payload"])
+            if isinstance(with_payload, (list, tuple)):
+                payload = {k: v for k, v in payload.items() if k in with_payload}
+            out.append({"id": pid, "payload": payload})
+        nxt = keys[start + limit] if start + limit < len(keys) else None
+        return out, nxt
+
+    async def count(self, **_: Any) -> int:
+        return len(self.points)
 
     async def iter_all_payloads(self, **_: Any):
         for point in list(self.points.values()):
@@ -171,6 +210,14 @@ class FakeQdrant:
             if pid in self.points:
                 self.points[pid]["payload"].update(payload)
                 self.payload_writes += 1
+
+    async def set_payload_batch(self, updates: Any, **_: Any) -> int:
+        touched = 0
+        for payload, ids in updates:
+            ids_list = list(ids)
+            await self.set_payload(payload, ids_list)
+            touched += len(ids_list)
+        return touched
 
 
 def fake_export(media_type: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -247,10 +294,42 @@ async def main(dry_run: bool) -> None:
     assert merged["bayes"] > 0 and merged["bayes_gems"] > 0, "bayes must never be unset"
     print(f"  bayes for The Dark Knight: {merged['bayes']} (gems {merged['bayes_gems']})")
 
-    # ---- text recipe: title survives truncation ordering
+    # ---- text recipe: the title must lead, because truncation keeps the HEAD
     sample_text = build_text(payloads[pid])
-    print(f"\n=== embedding text (last 120 chars) ===\n  ...{sample_text[-120:]}")
-    assert sample_text.rstrip().endswith("The Dark Knight."), "title must be repeated last"
+    print(f"\n=== embedding text (first 200 chars) ===\n  {sample_text[:200]}...")
+    head = " ".join(sample_text.split()[:6])
+    assert "The Dark Knight" in head, f"title must lead the text: {head!r}"
+    long_text = build_text({**payloads[pid], "overview": "x " * 2000})
+    assert len(long_text.split()) < 200, f"overview not bounded: {len(long_text.split())}"
+    print(f"  title in first 6 words; 4,000-char overview -> {len(long_text.split())} words")
+
+    # ---- re-embed guard: vectors + text_hash only, payload retained (#3/M7)
+    print("\n=== re-embed guard ===")
+    from jobs.reembed import reembed
+    import jobs.reembed as reembed_mod
+    fake_qdrant.points[pid]["payload"]["text_hash"] = "sha256:stale"
+    before_payload = dict(fake_qdrant.points[pid]["payload"])
+
+    class _Shim:
+        def __init__(self, *a, **k):
+            pass
+
+        def __getattr__(self, name):
+            return getattr(fake_qdrant, name)
+
+    _orig = reembed_mod.QdrantClient
+    reembed_mod.QdrantClient = _Shim
+    try:
+        stats_reembed = await reembed(embedder=embedder)
+    finally:
+        reembed_mod.QdrantClient = _orig
+    after_payload = fake_qdrant.points[pid]["payload"]
+    for field in ("imdb_id", "poster", "vote_count", "language"):
+        if field in before_payload:
+            assert after_payload.get(field) == before_payload[field], (
+                f"re-embed lost payload field {field}")
+    assert after_payload["text_hash"] != "sha256:stale", "text_hash was not rewritten"
+    print(f"  re-embedded {stats_reembed['reembedded']} point(s); payload fields intact")
     print("\nALL OFFLINE CHECKS PASSED")
 
 

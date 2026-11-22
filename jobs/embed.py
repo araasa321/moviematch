@@ -1,19 +1,32 @@
-"""Embedding text recipe + text hashing (PLAN §6.1), with the truncation fix.
+"""Embedding text recipe + text hashing (PLAN §6.1).
 
-The plan's recipe concatenates title, tagline, genres, keywords, "Directed by X"
-(twice), cast and the **full overview**. The embedding test showed two problems
-with that ordering:
+Recipe order is SIGNAL FIRST, PROSE LAST, BOUNDED:
 
-  1. `all-MiniLM-L6-v2` truncates at 256 word pieces. A long synopsis plus a
-     credits block can push the *title* out of the window, so the vector stops
-     describing the title at all.
-  2. Titles, not plot sentences, are what carry franchise identity (Batman/
-     Nolan clustered far more tightly than any genre did).
+    {title}. {title}. {tagline}. Genres: {genres}. Keywords: {keywords}.
+    Directed by {director}. Directed by {director}. Starring {cast}.
+    {title}. {first ~120 words of overview}
 
-So the recipe is unchanged in *content* but re-ordered: title (+ director) is
-repeated at the END of the string. Whatever gets truncated, the title survives.
-`build_text` is deterministic; `text_hash` lets the nightly job re-embed only
-titles whose source text actually changed.
+Why this order
+--------------
+`all-MiniLM-L6-v2` truncates to `max_seq_length` (256) word pieces, and it keeps
+the FIRST tokens, discarding the tail — the sentence-transformers docs are
+explicit: "Longer texts will be truncated to the first model.max_seq_length
+tokens". `overview` is stored up to 4,000 chars in `policy.normalize_payload`, so
+a realistic synopsis overflows the window on its own.
+
+The previous recipe appended the title repeats at the END, so the tail — the one
+thing it was trying to protect — was the FIRST thing destroyed whenever the
+overview was long. Its docstring claimed the opposite. Measured on a trivial
+record the bug is invisible; it only bites on real, long overviews.
+
+So the title now leads the string AND is repeated immediately before the
+overview, surviving either way. The overview is bounded to ~120 words (~170 word
+pieces), leaving headroom under 256 so a truncation event no longer discards any
+structured signal.
+
+`build_text` is deterministic — no timestamps, no dict ordering, no locale — so
+`text_hash` is stable and the job re-embeds only records whose source text
+actually changed.
 """
 
 from __future__ import annotations
@@ -22,14 +35,28 @@ import hashlib
 
 MAX_TOKENS = 256
 TITLE_REPEAT = 2          # PLAN §6.1 repeats the director twice; we repeat the title too
+# ~120 words is ~170 word pieces for MiniLM, leaving ~85 pieces of headroom under
+# MAX_TOKENS so a longer-than-expected render still cannot truncate the structured
+# block above the overview.
+OVERVIEW_WORDS = 120
 
 
-def build_text(payload: dict, *, title_repeats: int | None = None) -> str:
+def _overview_excerpt(overview: str, limit: int = OVERVIEW_WORDS) -> str:
+    """First `limit` words of the overview, whitespace-normalised."""
+    words = overview.split()
+    if len(words) <= limit:
+        return " ".join(words)
+    return " ".join(words[:limit])
+
+
+def build_text(payload: dict, *, title_repeats: int | None = None,
+               overview_words: int = OVERVIEW_WORDS) -> str:
     """Deterministic embedding text for one catalog record.
 
     Args:
         payload: TMDB-derived record following PLAN §4.1 field names.
-        title_repeats: override for how many times the title is appended.
+        title_repeats: how many times the title is repeated (before the overview).
+        overview_words: word budget for the trailing synopsis.
     """
     repeats = max(1, title_repeats if title_repeats is not None else TITLE_REPEAT)
     title = str(payload.get("title") or "").strip()
@@ -40,22 +67,33 @@ def build_text(payload: dict, *, title_repeats: int | None = None) -> str:
     cast = ", ".join((payload.get("cast") or [])[:4])
     overview = str(payload.get("overview") or payload.get("overview_short") or "").strip()
 
-    head = f"{title}."
+    parts: list[str] = []
+    # 1. Title leads: it is the strongest franchise signal and must never be
+    #    the thing truncation reaches first.
+    if title:
+        parts.append(f"{title}.")
+        if repeats > 1:
+            parts.append(" ".join([f"{title}."] * (repeats - 1)))
     if tagline:
-        head += f" {tagline}"
+        # Trailing period: without it the tagline ran into "Genres:" as
+        # "...Free your mind Genres:" and the genre block read as prose.
+        parts.append(f"{tagline}." if not tagline.endswith(".") else tagline)
     if genres:
-        head += f" Genres: {genres}."
+        parts.append(f"Genres: {genres}.")
     if keywords:
-        head += f" Keywords: {keywords}."
+        parts.append(f"Keywords: {keywords}.")
     if director:
-        head += f" Directed by {director}"
-        head += f" Directed by {director}."
+        # Kept twice: PLAN §6.1 specifies the auteur repeat.
+        parts.append(f"Directed by {director}. Directed by {director}.")
     if cast:
-        head += f" Starring {cast}."
+        parts.append(f"Starring {cast}.")
+    # 2. Title again immediately BEFORE the prose, so it survives even if the
+    #    overview overflows the window.
+    if overview and title:
+        parts.append(f"{title}.")
     if overview:
-        head += f" {overview}"
-    tail = f" {title}." * repeats
-    return " ".join((head + tail).split())
+        parts.append(_overview_excerpt(overview, overview_words))
+    return " ".join(" ".join(parts).split())
 
 
 def text_hash(text: str) -> str:
@@ -70,4 +108,3 @@ def needs_reembed(old_payload: dict, new_payload: dict) -> bool:
     facts belong in the payload, not the vector).
     """
     return text_hash(build_text(old_payload)) != text_hash(build_text(new_payload))
-

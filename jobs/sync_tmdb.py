@@ -68,7 +68,18 @@ class Embedder:
     def _load(self) -> Any:
         if self._model is None:
             from sentence_transformers import SentenceTransformer  # heavy, jobs only
+            from jobs.embed import MAX_TOKENS
             self._model = SentenceTransformer(self.model_name)
+            # The recipe's word budget assumes a 256-word-piece window. Pointing
+            # --model at a 512-token model would silently under-fill it; pointing
+            # it at an 128-token model would silently truncate the structured
+            # block again. Fail loudly instead of guessing.
+            actual = getattr(self._model, "max_seq_length", None)
+            if actual is not None and int(actual) != MAX_TOKENS:
+                raise RuntimeError(
+                    f"embedding recipe assumes {MAX_TOKENS} tokens but model "
+                    f"{self.model_name!r} uses {actual}. Scale OVERVIEW_WORDS in "
+                    f"jobs/embed.py for this model, or use a {MAX_TOKENS}-token model.")
         return self._model
 
     def encode(self, texts: Sequence[str]) -> list[list[float]]:

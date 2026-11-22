@@ -64,12 +64,24 @@ def test_catalog_mean_ignores_tiny_vote_counts():
 
 
 # ------------------------------------------------------------------- recipe
-def test_recipe_puts_title_last_so_truncation_keeps_it():
+def test_recipe_puts_title_first_so_truncation_keeps_it():
+    """Truncation keeps the FIRST tokens and discards the tail.
+
+    The old recipe appended title repeats at the END and asserted
+    `text.endswith(title)` — which proves nothing about survival, because the
+    tail is exactly what the tokenizer destroys. Assert the real invariant: the
+    title is in the leading words, before the overview begins.
+    """
+    overview = "x " * 900
     text = build_text({"title": "The Dark Knight", "director": "Christopher Nolan",
                        "genres": ["Action"], "cast": ["Christian Bale"],
-                       "overview": "x " * 900})
-    assert text.endswith("The Dark Knight.")
-    assert "Directed by Christopher Nolan Directed by Christopher Nolan" in text
+                       "overview": overview})
+    head = " ".join(text.split()[:6])
+    assert "The Dark Knight" in head, text[:120]
+    # and it recurs immediately before the prose
+    assert text.count("The Dark Knight.") >= 2
+    # structured credits survive; periods separate the doubled director line
+    assert "Directed by Christopher Nolan. Directed by Christopher Nolan." in text
 
 
 def test_recipe_is_deterministic_and_hashable():
