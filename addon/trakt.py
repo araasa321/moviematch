@@ -176,6 +176,30 @@ class TraktClient:
         items = await self._get_once(f"/{segment}/{key}/related")
         return items[:limit]
 
+    async def last_activities(self) -> dict[str, Any]:
+        """EVERYTHING that can invalidate a cached recommendation list, in one call.
+
+        Marking something watched on trakt.tv immediately changes /recommendations
+        (the watched title drops out, a new one appears). Without this, a 6-hour
+        cache would leave Stremio stale for hours. This endpoint is tiny and is the
+        cheapest possible "did anything change?" probe.
+
+        Watched, rated, watchlisted and hidden are the four that matter: they change
+        which titles are eligible AND retrain Trakt's model.
+        """
+        if not self.config.configured:
+            raise TraktError("Trakt is not configured")
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(f"{API}/sync/last_activities",
+                                        headers=self._headers())
+        self.calls += 1
+        if response.status_code == 401:
+            raise TraktError("Trakt rejected the access token (401)")
+        if response.status_code != 200:
+            raise TraktError(f"/sync/last_activities -> {response.status_code}")
+        data = response.json()
+        return data if isinstance(data, dict) else {}
+
     async def fetch_user_state(self) -> dict[str, Any]:
         """Everything `addon.rows.build_user_state` consumes, in one Trakt-shaped dict."""
         if not self.config.configured:

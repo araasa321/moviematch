@@ -38,8 +38,9 @@ from .fixtures import trakt_history
 from .library import handle_library_event
 from .memory_store import MemoryStore, load_records_from_json
 from .qdrant import QdrantClient, QdrantConfig
-from .recommendations import (RECOMMENDATIONS_MAX_STALE, RECOMMENDATIONS_TTL,
-                              RecommendationCache, ordered_records, to_meta)
+from .recommendations import (ACTIVITY_TTL, RECOMMENDATIONS_MAX_STALE,
+                              RECOMMENDATIONS_TTL, RecommendationCache,
+                              activities_fingerprint, ordered_records, to_meta)
 from .rows import RowPlan, build_user_state
 from .store import QdrantStore
 from .stremio import (PAGE_SIZE, build_manifest, catalog_response, parse_extra,
@@ -194,6 +195,8 @@ def make_app(store: Any | None = None,
 
     app.state.history_provider = current_history
     app.state.history_cache = history_cache
+    # Exposed for /health/deep and for tests that need to age the cache.
+    app.state.rec_cache = rec_cache
 
     def current_secret() -> str:
         return os.environ.get("INSTALL_SECRET") or DEV_SECRET
@@ -495,8 +498,40 @@ def make_app(store: Any | None = None,
             return JSONResponse({"metas": []}, status_code=404)
         metas = await _trakt_row(media_type, base_row)
         page_ = metas[safe_skip(extra): safe_skip(extra) + PAGE_SIZE]
+        # 60s, not the old 900: the row is expected to change the moment something
+        # is watched on trakt.tv, and the server-side activity probe already keeps
+        # the Trakt call count tiny. A long max-age would freeze the client copy.
         return JSONResponse(catalog_response(page_),
-                            headers={"Cache-Control": "max-age=900"})
+                            headers={"Cache-Control": "max-age=60"})
+
+    async def _probe_activities() -> bool:
+        """Ask Trakt whether anything changed. True when cached lists were dropped.
+
+        This is what makes "mark watched on trakt.tv -> Stremio updates in ~a
+        minute" work. It is a tiny GET compared with a full recommendation fetch,
+        and it also re-filters the history cache, so the watched title disappears
+        from rows even before the recommendation list is refetched.
+
+        A failure here is deliberately silent: the recommendation fetch has its own
+        error handling, and a probe must never be the reason a row fails.
+        """
+        nonlocal history_is_fallback
+        if not trakt.config.configured:
+            return False
+        if not rec_cache.needs_activity_check():
+            return False
+        try:
+            activities = await trakt.last_activities()
+        except Exception as exc:  # noqa: BLE001 - never 500 Stremio
+            log.debug("last_activities probe failed (%s); keeping cache",
+                      type(exc).__name__)
+            return False
+        changed = rec_cache.note_activities(activities_fingerprint(activities))
+        # The history cache is what rows are filtered by; drop it so a title just
+        # marked watched stops appearing immediately, without waiting for HISTORY_TTL.
+        history_cache.clear()
+        history_is_fallback = False
+        return changed
 
     async def _trakt_items(media_type: str, kind: str) -> list[dict[str, Any]]:
         """Trakt ids for a row, from cache when fresh.
@@ -505,7 +540,16 @@ def make_app(store: Any | None = None,
         several rows does not turn into several Trakt calls. On failure the last
         good list is served (up to RECOMMENDATIONS_MAX_STALE); with no good list at
         all the row is simply empty — the addon never 500s because Trakt is down.
+
+        The activity probe runs BEFORE the fresh-cache check, not inside the miss
+        path: a 6-hour-fresh list must still be invalidated the moment something is
+        watched on trakt.tv. It is rate-limited to one tiny GET per ACTIVITY_TTL, so
+        the common case (nothing changed) still costs zero recommendation fetches.
         """
+        # Probe first: a 6-hour-fresh list must still be invalidated the moment
+        # something is watched on trakt.tv. Rate-limited internally, so the common
+        # case (nothing changed) still costs zero recommendation fetches.
+        await _probe_activities()
         cached = rec_cache.fresh(media_type, kind)
         if cached is not None:
             return cached

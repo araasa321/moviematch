@@ -29,12 +29,43 @@ from .store import Record
 
 log = logging.getLogger(__name__)
 
-# Trakt recommendations change slowly (they are recomputed from watch history, not
-# per request). 6h is ~2 calls/hour, far inside the 1000/5min limit, and stale-serving
-# means a Trakt outage is invisible to the user for hours.
+# Trakt recommendations change the instant you watch something on trakt.tv: the
+# watched title drops out and a new one appears. To mirror that in Stremio without
+# hammering /recommendations, the cheap probe is /sync/last_activities — a few
+# hundred bytes that changes as soon as anything relevant does.
+#
+#   * the recommendation list itself is refetched only when this fingerprint moves
+#     (or when RECOMMENDATIONS_TTL expires as a backstop for Trakt-side retraining
+#     that does not bump a timestamp),
+#   * the fingerprint is checked at most once per ACTIVITY_TTL, so a home-screen
+#     open costs ONE tiny extra GET, not one per row.
+ACTIVITY_TTL = 60.0           # how often we ask Trakt "has anything changed?"
 RECOMMENDATIONS_TTL = 6 * 3600.0
-# Hard cap on how stale a list may get before it is discarded rather than served.
 RECOMMENDATIONS_MAX_STALE = 72 * 3600.0
+
+# The activity fields that can change the recommendation list. Nested `all`
+# covers cross-cutting updates; the rest are the four states Trakt's model and
+# our own watched/watchlist filtering both depend on.
+ACTIVITY_PATHS: tuple[tuple[str, str], ...] = (
+    ("movies", "watched_at"), ("movies", "rated_at"),
+    ("movies", "watchlisted_at"), ("movies", "hidden_at"),
+    ("movies", "collected_at"),
+    ("episodes", "watched_at"), ("episodes", "rated_at"),
+    ("shows", "rated_at"), ("shows", "watchlisted_at"), ("shows", "hidden_at"),
+)
+
+
+def activities_fingerprint(activities: dict[str, Any]) -> str:
+    """A short string that changes whenever the recommendation inputs change."""
+    parts: list[str] = []
+    for section, field in ACTIVITY_PATHS:
+        block = activities.get(section)
+        value = block.get(field) if isinstance(block, dict) else None
+        parts.append(f"{section}.{field}={value or ''}")
+    all_at = activities.get("all")
+    if all_at:
+        parts.append(f"all={all_at}")
+    return "|".join(parts)
 
 
 @dataclass
@@ -119,11 +150,21 @@ class RecommendationCache:
     One per app (built in make_app), not per request. Mirrors the singleflight
     pattern already used for the Trakt history sync: concurrent row requests share
     one in-flight fetch instead of stampeding Trakt.
+
+    Freshness works at two levels so that "mark watched" is reflected in Stremio
+    within about a minute without refetching on every request:
+
+      * `activities_checked_at` limits the /sync/last_activities probe to once per
+        ACTIVITY_TTL (one tiny GET),
+      * a changed fingerprint invalidates every cached list, which then refetches.
     """
 
     def __init__(self) -> None:
         self._lists: dict[tuple[str, str], CachedList] = {}
+        self._fingerprint: str | None = None
+        self._activities_at: float = 0.0
 
+    # ---------------------------------------------------------------- lists
     def get(self, media_type: str, kind: str) -> CachedList | None:
         return self._lists.get((media_type, kind))
 
@@ -149,6 +190,25 @@ class RecommendationCache:
     def put(self, media_type: str, kind: str, items: Sequence[dict[str, Any]]) -> None:
         self._lists[(media_type, kind)] = CachedList(items=list(items),
                                                      at=time.monotonic(), ok=True)
+
+    # ----------------------------------------------------------- invalidation
+    def needs_activity_check(self) -> bool:
+        return time.monotonic() - self._activities_at >= ACTIVITY_TTL
+
+    def note_activities(self, fingerprint: str) -> bool:
+        """Record a probe result. Returns True when it CHANGED (caches dropped)."""
+        self._activities_at = time.monotonic()
+        if self._fingerprint is not None and fingerprint != self._fingerprint:
+            log.info("trakt activity changed; dropping %s cached list(s)",
+                     len(self._lists))
+            self._lists.clear()
+            self._fingerprint = fingerprint
+            return True
+        self._fingerprint = fingerprint
+        return False
+
+    def invalidate(self, media_type: str, kind: str) -> None:
+        self._lists.pop((media_type, kind), None)
 
 
 # ------------------------------------------------------------------ rendering
