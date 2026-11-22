@@ -139,13 +139,17 @@ class IngestQdrant:
                              wait: bool = False, name: str = TITLES) -> None:
         """Replace ONLY the vectors of existing points; the payload is untouched.
 
-        Uses POST /collections/{c}/points/vectors, which updates named/unnamed
-        vectors in place. Unlike `upsert` it does not transmit — and therefore
+        Uses PUT /collections/{c}/points/vectors (Qdrant >= 1.2.0), which updates
+        the specified vectors in place and leaves everything else, including the
+        payload, alone. Unlike `upsert` it does not transmit — and therefore
         cannot overwrite — a payload. This is what the #3 re-embed driver uses.
+
+        The method is PUT, not POST: POST on this path returns
+        `405 Method Not Allowed` (observed against Qdrant Cloud).
         """
         if not points:
             return
-        await self._request("POST", f"/collections/{name}/points/vectors",
+        await self._request("PUT", f"/collections/{name}/points/vectors",
                             {"points": [{"id": pid, "vector": list(vec)}
                                         for pid, vec in points]},
                             params={"wait": "true" if wait else "false"})

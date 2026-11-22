@@ -172,8 +172,12 @@ def test_reembed_never_calls_upsert(monkeypatch):
     assert calls["upsert"] == 0, "the re-embed driver called upsert() — payloads are at risk"
 
 
-def test_update_vectors_body_sends_no_payload():
-    """Each point in the update_vectors body is exactly {id, vector}."""
+def test_update_vectors_uses_put_and_sends_no_payload():
+    """Each point in the body is exactly {id, vector}, and the method is PUT.
+
+    POST on this path returns 405 Method Not Allowed (hit against Qdrant Cloud on
+    the first real --limit 5 run), so the verb is pinned here.
+    """
     from jobs.qdrant_client import QdrantClient
 
     captured: dict = {}
@@ -186,8 +190,9 @@ def test_update_vectors_body_sends_no_payload():
     client._request = fake_request            # type: ignore[method-assign]
     asyncio.run(client.update_vectors([("p1", [0.1, 0.2])], wait=True))
 
+    assert captured["method"] == "PUT", (
+        f"update_vectors must use PUT; {captured['method']} returns 405")
     assert captured["path"].endswith("/points/vectors"), captured["path"]
-    assert captured["method"] == "POST"
     points = captured["payload"]["points"]
     assert points == [{"id": "p1", "vector": [0.1, 0.2]}]
     assert "payload" not in points[0]
@@ -244,6 +249,32 @@ def test_preflight_aborts_if_payload_would_change():
 
 def test_canary_fields_are_real_recipe_external_fields():
     assert "imdb_id" in CANARY_FIELDS and "text_hash" not in CANARY_FIELDS
+
+
+def test_rejected_update_vectors_writes_nothing():
+    """A 405/4xx from update_vectors must leave every point exactly as it was.
+
+    This is the scenario that actually happened on the first live run: the
+    endpoint was called with POST and Qdrant answered 405. Because update_vectors
+    threw BEFORE set_payload ran, no point — including the probe — was modified.
+    """
+    q = _seed(3)
+    snapshot = {pid: (dict(p["payload"]), list(p["vector"])) for pid, p in q.points.items()}
+
+    async def reject(points, **kw):
+        from jobs.qdrant_client import QdrantError
+        raise QdrantError("PUT /collections/titles/points/vectors -> 405: ")
+
+    q.update_vectors = reject
+    from jobs.qdrant_client import QdrantError
+
+    with pytest.raises(QdrantError) as exc:
+        _reembed_against(q)
+    assert "NOTHING was written" in str(exc.value)
+    # Every point is byte-identical: no vector moved, no hash rewritten.
+    for pid, point in q.points.items():
+        assert point["payload"] == snapshot[pid][0], f"{pid}: payload changed"
+        assert point["vector"] == snapshot[pid][1], f"{pid}: vector changed"
 
 
 def test_overview_words_constant_is_sane():

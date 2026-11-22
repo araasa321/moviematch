@@ -120,7 +120,16 @@ async def reembed(*, dry_run: bool = False, limit: int | None = None,
     full = before.get("payload") or {}
     probe_text = build_text(full)
     probe_vec = embedder.encode([probe_text])[0]
-    await qdrant.update_vectors([(probe_id, probe_vec)], wait=True)
+    try:
+        await qdrant.update_vectors([(probe_id, probe_vec)], wait=True)
+    except QdrantError as exc:
+        # Fail BEFORE any payload write. The text_hash write below never runs, so
+        # a rejected vector update leaves the point exactly as it was.
+        raise QdrantError(
+            f"preflight: update_vectors rejected ({exc}). NOTHING was written — "
+            f"the catalog is unchanged. Common cause: an unsupported endpoint or "
+            f"HTTP method for your Qdrant version (this needs Qdrant >= 1.2.0 and "
+            f"PUT /collections/titles/points/vectors).") from exc
     await qdrant.set_payload_batch([({"text_hash": text_hash(probe_text)}, [probe_id])])
 
     after = await qdrant.get_point(probe_id, with_payload=True, with_vector=True)
