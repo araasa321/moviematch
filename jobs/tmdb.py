@@ -237,7 +237,15 @@ class TMDBClient:
 
 
 async def download_export(media_type: str, day: str, *, lookback_days: int = 3) -> list[dict]:
-    """TMDB daily ID export (PLAN §6.3 step 1), with yesterday-fallback.
+    """TMDB daily ID export (PLAN §6.3 step 1), with previous-day fallback.
+
+    Every day is tried, not just 404s: the export CDN is redundant and a 403/5xx
+    on one dated file does not mean the previous day's file is also gone. The
+    date is not the only axis along which the fetch can fail.
+
+    Raises TMDBError naming the LAST status and URL it saw, so a permanent
+    failure (e.g. a revoked token returning 403 forever) is diagnosable from the
+    job log instead of looking like "the export was not published yet".
 
     Args:
         day: `MM_DD_YYYY` of the preferred file.
@@ -247,14 +255,17 @@ async def download_export(media_type: str, day: str, *, lookback_days: int = 3) 
     from datetime import datetime, timedelta
 
     base = datetime.strptime(day, "%m_%d_%Y")
+    last_status: int | None = None
+    last_url = ""
     async with httpx.AsyncClient(timeout=120.0) as client:
         for back in range(lookback_days):
             stamp = (base - timedelta(days=back)).strftime("%m_%d_%Y")
             url = f"{EXPORTS}/{prefix}_{stamp}.json.gz"
             response = await client.get(url)
+            last_status, last_url = response.status_code, url
             if response.status_code == 200:
                 payload = gzip.decompress(io.BytesIO(response.content).read()).decode("utf-8")
                 return [json.loads(line) for line in payload.splitlines() if line.strip()]
-            if response.status_code != 404:
-                raise TMDBError(f"{response.status_code} downloading {url}")
-    raise TMDBError(f"no {prefix} export found within {lookback_days} days of {day}")
+    raise TMDBError(
+        f"no {prefix} export within {lookback_days} days of {day} "
+        f"(last: HTTP {last_status} from {last_url})")

@@ -613,11 +613,17 @@ async def daily(args: argparse.Namespace) -> Stats:
         # it cannot be recovered from the id).
         bayes_stats = policy.bayes_stats(payloads.values()) if payloads else None
 
+        # A missing export is collected per type rather than skipped: a permanent
+        # 403 from files.tmdb.org used to produce a GREEN workflow that added
+        # nothing. daily() itself is never reached under --dry-run (run()
+        # short-circuits to the offline dry_run()), so this cannot affect it.
+        missing_exports: list[str] = []
         for media_type in args.types:
             try:
                 export = await download_export(media_type, today)
             except Exception as exc:  # noqa: BLE001
-                log.warning("export unavailable for %s: %s", media_type, exc)
+                log.error("export unavailable for %s after retries: %s", media_type, exc)
+                missing_exports.append(media_type)
                 continue
             log.info("%s export: %s ids", media_type, len(export))
 
@@ -660,6 +666,14 @@ async def daily(args: argparse.Namespace) -> Stats:
                                existing=set(payloads), dry_run=args.dry_run)
             payloads.update({point_id(media_type, r["payload"]["tmdb_id"]): r["payload"]
                              for r in ready})
+
+        # Fail the RUN, not just the log line. Every type was attempted first, so
+        # one broken export does not hide another. SystemExit propagates out of
+        # main() and makes GitHub Actions mark the job failed without touching the
+        # workflow YAML. Deliberately no --allow-missing-export escape hatch:
+        # --types already scopes a manual run.
+        if missing_exports:
+            raise SystemExit(f"no TMDB export for {', '.join(missing_exports)}")
 
         # Recently released titles, in two passes:
         #   (a) the user's own languages, one discover call each
@@ -729,11 +743,15 @@ async def refresh(args: argparse.Namespace) -> Stats:
         payloads = await existing_payloads(qdrant) if not args.dry_run else {}
 
         # 1. popularity refresh for ALL known points — payload only, no re-embed
+        # A missing export fails the run (see daily()): a weekly refresh that
+        # silently swept nothing must not report success.
+        missing_exports: list[str] = []
         for media_type in args.types:
             try:
                 export = await download_export(media_type, today)
             except Exception as exc:  # noqa: BLE001
-                log.warning("export unavailable for %s: %s", media_type, exc)
+                log.error("export unavailable for %s after retries: %s", media_type, exc)
+                missing_exports.append(media_type)
                 continue
             by_id = {int(row["id"]): row for row in export if row.get("id")}
             updates: dict[float, list[str]] = {}
@@ -749,6 +767,9 @@ async def refresh(args: argparse.Namespace) -> Stats:
                     (({"popularity": pop}, ids) for pop, ids in updates.items()))
             log.info("%s popularity: %s points in %s requests", media_type,
                      sum(len(v) for v in updates.values()), len(updates))
+
+        if missing_exports:
+            raise SystemExit(f"no TMDB export for {', '.join(missing_exports)}")
 
         # 2+3. votes/ratings for the active set, then recompute bayes
         updates_by_id: dict[str, dict[str, Any]] = {}
