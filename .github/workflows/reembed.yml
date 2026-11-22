@@ -1,0 +1,66 @@
+name: reembed
+
+# Re-embed the titles catalog after an embedding-recipe change (#3 / M7).
+#
+# This is NOT a routine job: it rewrites vectors for every title whose text_hash
+# no longer matches jobs/embed.build_text, which after a recipe change is the
+# whole catalog (~45k points, ~25-40 min on a 4-core runner, CPU-only).
+#
+# Safe by construction, so it is safe to dispatch manually:
+#   * writes vectors via PUT /points/vectors and ONLY text_hash via set_payload —
+#     never an upsert, so no payload field can be replaced;
+#   * runs a preflight on one point and aborts the whole run if any payload field
+#     changes;
+#   * idempotent — already-current records are skipped, so re-running resumes.
+#
+# Take a Qdrant snapshot first if you have any doubt:
+#   curl -X POST "$QDRANT_URL/collections/titles/snapshots" -H "api-key: $KEY"
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Count changed records only; write nothing"
+        type: boolean
+        default: false
+      limit:
+        description: "Stop after N changed points (blank = whole catalog)"
+        required: false
+        default: ""
+      batch:
+        description: "Points per embed+write round trip"
+        required: false
+        default: "256"
+
+jobs:
+  reembed:
+    runs-on: ubuntu-latest
+    # Full sweep is ~40 min on this runner; leave headroom for a slow cold start.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-minilm-v1
+      - run: pip install -r jobs/requirements.txt
+      - name: re-embed
+        # Inputs are passed through `env` rather than interpolated into the shell:
+        # `${{ }}` substitutes literally into the script text, which is fragile for
+        # free-text inputs. Quoted env vars cannot break out of the command.
+        env:
+          IN_DRY_RUN: ${{ inputs.dry_run }}
+          IN_LIMIT: ${{ inputs.limit }}
+          IN_BATCH: ${{ inputs.batch }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+          # Optional: removes HF anonymous rate limits on a long run.
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          ARGS=(--batch "${IN_BATCH:-256}")
+          if [ "${IN_DRY_RUN:-false}" = "true" ]; then ARGS+=(--dry-run); fi
+          if [ -n "${IN_LIMIT:-}" ]; then ARGS+=(--limit "$IN_LIMIT"); fi
+          echo "python jobs/reembed.py ${ARGS[*]}"
+          python jobs/reembed.py "${ARGS[@]}"
