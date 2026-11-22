@@ -33,13 +33,38 @@ CATALOG_MEAN_VOTE = 6.4
 # thin populations. The bias being corrected is en vs non-en.
 STRATUM_MIN_SAMPLE = 100      # below this a stratum's own C is noise
 SHRINK_PSEUDO_COUNT = 30       # pseudo-items pulling a thin stratum's C toward global
-PRIOR_FRACTION = 0.10          # m = PRIOR_FRACTION * median(vote_count) of the stratum
+
+# m = PRIOR_FRACTION * median(vote_count) of the stratum.
+#
+# 0.10 was wrong, and the live catalog proved it. Measured vote_count medians on a
+# 45,177-point catalog: movie/en 381, movie/xx 133, series/en 154, series/xx 73.
+# 0.10 x those is 7-38, so m pinned to M_MIN in three of four strata. At m=20 a
+# title with 10 votes keeps 33 % of its raw rating, i.e. the Bayesian smoothing
+# that exists to kill "9.5 from 12 people" was switched off for most of the catalog.
+#
+# 2.0 puts m at 146-762 across those strata, which restores the property we want:
+# a 10-vote title keeps 1-6 % of its raw rating, a 5,000-vote title keeps 87-97 %.
+# m=5000 is the "half weight" point — a title needs roughly that many votes to be
+# judged mostly on its own rating.
+PRIOR_FRACTION = 2.0
+# gems mode is SUPPOSED to surface well-rated low-vote titles; blockbuster mode is
+# not. That distinction lives here, deliberately: m_gems = GEMS_M_FRACTION * m
+# makes the gems prior ~4x weaker, so a 60-vote 8.4 keeps meaningful weight in
+# `gems` while staying firmly suppressed in `blockbuster`. Do not "fix" gems by
+# lowering the shared PRIOR_FRACTION — that re-breaks the blockbuster row.
 GEMS_M_FRACTION = 0.25         # m_gems = max(10, GEMS_M_FRACTION * m)
-M_MIN, M_MAX = 20.0, 10_000.0
-# Vote floor for the C sample. The floor exists to keep a "3 votes, 9.5" title out
-# of the mean — NOT to re-impose the English vote bar on foreign titles, which is
-# exactly the population being corrected. policy.FOREIGN_MOVIE_MIN_VOTES is 20 and
-# FOREIGN_SERIES_MIN_VOTES is 10, so a blanket >=50 silently guts the xx stratum.
+# Bounds. M_MIN keeps a degenerate median from disabling the prior entirely.
+# M_MAX matters as much: with m=10_000 even a 20,000-vote blockbuster keeps only
+# 67 % of its own rating, so every title flattens toward the stratum mean. 3000
+# is the top of the usual IMDb-style range (a 5,000-vote title keeps 62.5 %,
+# a 20,000-vote one 87 %), which keeps blockbusters meaningful while still
+# bounding a single noisy stratum.
+M_MIN, M_MAX = 20.0, 3000.0
+# Vote floor for the C sample AND the m median. The floor keeps a "3 votes, 9.5"
+# title out of both statistics — it must NOT re-impose the English vote bar on
+# foreign titles, which are exactly the population being corrected.
+# policy.FOREIGN_MOVIE_MIN_VOTES is 20 and FOREIGN_SERIES_MIN_VOTES is 10, so a
+# blanket >=50 silently guts the xx stratum.
 MIN_VOTES_FOR_MEAN = {"en": 50, "xx": 10}
 
 
@@ -71,19 +96,24 @@ def bayes_stats(payloads: Iterable[dict[str, Any]]
              clear the SAME vote floor as C, clamped to [M_MIN, M_MAX]
     m_gems = max(10.0, GEMS_M_FRACTION * m)
 
-    The vote floor on `m` is not cosmetic. The catalog deliberately contains a
-    large tail of zero- and low-vote titles (the recent-release crawl ingests
-    unreleased films on purpose, and `should_index` admits them via the recency
-    clause). Including that tail in median(vote_count) drags the median down to a
-    few hundred, so PRIOR_FRACTION * median lands under M_MIN and m collapses to
-    20. At m=20 a title with 10 votes keeps 33 % of its raw rating, i.e. the
-    Bayesian smoothing stops working — "8.9 from 12 people" walks straight back in.
-    Observed on a live 45k catalog: m=20 for three of four strata.
+    Both statistics use a vote floor. For `C` it keeps a "3 votes, 9.5" title out
+    of the mean; for `m` it keeps the same low-vote tail out of the median. The
+    floor is NOT what makes m come out small — the catalog's real median
+    vote_count is genuinely 73-381, which is why PRIOR_FRACTION had to be 2.0
+    rather than 0.10 (see the constant's comment for the measurements).
 
     Compute this over the WHOLE catalog, never over `iter_discover(max_pages=...)`.
     That sample is the top pages by popularity.desc — overwhelmingly high-vote
     English titles — and using it would push median(vote_count) up for `xx` and
     make the non-English prior worse than today.
+
+    What stratification does and does not buy on a real catalog: measured C values
+    on a 45k catalog were movie/en 6.36 vs movie/xx 6.55 — foreign titles are NOT
+    rated lower there. The stratified prior therefore makes each stratum's
+    shrinkage correct relative to its OWN vote distribution; it does not, by
+    itself, make a foreign classic outrank a well-reviewed blockbuster. Keeping the
+    Bayesian term honest matters more than that headline. See
+    tests/test_bayes_stratified.py for what is actually asserted.
     """
     rows = [p for p in payloads if p]
     # Global shrinkage anchor: the mean over every item that clears its own floor.

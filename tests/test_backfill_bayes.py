@@ -50,7 +50,9 @@ def test_m_median_ignores_titles_below_the_vote_floor():
     floor = policy.MIN_VOTES_FOR_MEAN["en"]
     expected_median = policy._median(
         [float(r["vote_count"]) for r in cat if r["vote_count"] >= floor])
-    assert stats[("movie", "en")][1] == round(policy.PRIOR_FRACTION * expected_median, 4)
+    expected_m = min(policy.M_MAX,
+                     max(policy.M_MIN, policy.PRIOR_FRACTION * expected_median))
+    assert stats[("movie", "en")][1] == round(expected_m, 4)
 
 
 def test_low_vote_titles_are_smoothed_again():

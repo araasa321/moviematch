@@ -65,16 +65,25 @@ def test_bayes_from_payload_ignores_a_bool():
 
 # ------------------------------------------------------------- stratification
 def _catalog(movie_en=0, movie_xx=0, series_en=0, **kw) -> list[dict]:
+    """A synthetic catalog shaped like the live one.
+
+    Median vote_count matters here: the live 45k catalog measured medians of
+    381 (movie/en), 133 (movie/xx), 154 (series/en) and 73 (series/xx). A flat
+    vote_count is NOT representative — it produces m at the clamp and hides the
+    very behaviour these tests check for.
+    """
     rows: list[dict] = []
-    for _ in range(movie_en):
-        rows.append({"media_type": "movie", "language": "en", "vote_average": 7.2,
-                     "vote_count": 5000})
-    for _ in range(movie_xx):
-        rows.append({"media_type": "movie", "language": "ml", "vote_average": 8.0,
-                     "vote_count": 60})
-    for _ in range(series_en):
-        rows.append({"media_type": "series", "language": "en", "vote_average": 7.5,
-                     "vote_count": 300})
+
+    def fill(n, media_type, language, mean_vote, median_votes):
+        for i in range(n):
+            # Spread around the median so median(vote_count) ~= median_votes.
+            v = median_votes + (i - n // 2) * 3
+            rows.append({"media_type": media_type, "language": language,
+                         "vote_average": mean_vote, "vote_count": max(60, v)})
+
+    fill(movie_en, "movie", "en", 7.2, 381)
+    fill(movie_xx, "movie", "ml", 8.0, 133)
+    fill(series_en, "series", "en", 7.5, 154)
     return rows
 
 
@@ -152,30 +161,86 @@ def test_bayes_stats_on_an_empty_catalog_is_empty():
 
 
 # ------------------------------------------------------------- headline
-def test_foreign_classic_beats_mediocre_english():
-    """The headline assertion.
+def test_smoothing_suppresses_a_low_vote_title():
+    """The property this whole mechanism exists for.
 
-    R=8.4, v=60, non-English vs R=7.2, v=5000, English.
-    Under today's constants: 6.513 vs 7.067 — English wins.
-    Stratified, the foreign classic must win on `bayes` alone.
+    An earlier version of this file asserted that a foreign classic (R=8.4, v=60)
+    beats a mediocre English blockbuster (R=7.2, v=5000) on `bayes`. It passed —
+    but only because m had collapsed to its floor, which switched smoothing off.
+    With a correctly sized m the ordering does NOT reverse, and that is correct:
+    60 votes is not evidence that a film is good.
+
+    What is asserted instead is what the Bayesian term is actually for.
     """
-    # Today's behaviour, pinned so the premise of the test cannot rot.
-    today_foreign = bayes_score(8.4, 60, "movie")
-    today_english = bayes_score(7.2, 5000, "movie")
-    assert today_foreign == pytest.approx(6.513, abs=1e-3)
-    assert today_english == pytest.approx(7.067, abs=1e-3)
-    assert today_english > today_foreign
-
     stats = policy.bayes_stats(_catalog(movie_en=400, movie_xx=400))
-    foreign = policy.apply_quality(
-        {"media_type": "movie", "language": "ml", "vote_average": 8.4,
-         "vote_count": 60}, stats=stats)
-    english = policy.apply_quality(
+    low_vote = policy.apply_quality(
+        {"media_type": "movie", "language": "en", "vote_average": 9.5,
+         "vote_count": 12}, stats=stats)
+    blockbuster = policy.apply_quality(
         {"media_type": "movie", "language": "en", "vote_average": 7.2,
          "vote_count": 5000}, stats=stats)
-    assert foreign["bayes"] > english["bayes"], (
-        f"stratification did not reverse the ordering: "
-        f"foreign={foreign['bayes']} english={english['bayes']}")
+    # The raw 9.5 must be pulled far down toward the stratum mean. With m in the
+    # hundreds a 12-vote title keeps ~1-2 % of its rating, so it lands essentially
+    # ON the mean (7.2) and cannot beat a genuinely well-rated film.
+    assert low_vote["bayes"] < 7.6, (
+        f"low-vote title was not suppressed: {low_vote['bayes']}")
+    assert low_vote["bayes"] <= blockbuster["bayes"] + 0.1, (
+        f"'9.5 from 12 people' outranked a 5000-vote film: "
+        f"{low_vote['bayes']} vs {blockbuster['bayes']}")
+    # And the raw rating really was mostly discarded.
+    assert low_vote["bayes"] < 8.0, low_vote["bayes"]
+
+
+def test_m_is_sized_for_a_real_catalog():
+    """m must be big enough that low-vote titles are actually shrunk.
+
+    Regression for the live bug: PRIOR_FRACTION 0.10 against a real catalog's
+    medians (73-381) produced m=20, i.e. a 10-vote title kept 33 % of its rating.
+    """
+    stats = policy.bayes_stats(_catalog(movie_en=400, movie_xx=400))
+    for key, (_c, m, _mg) in stats.items():
+        assert m > policy.M_MIN, f"{key}: m={m} still pinned to the floor"
+        weight_on_raw = 10 / (10 + m)
+        assert weight_on_raw < 0.10, (
+            f"{key}: a 10-vote title still keeps {weight_on_raw:.0%} of its rating")
+
+
+def test_strata_are_allowed_to_differ_in_m():
+    """Stratification's real job: each stratum shrunk against its OWN votes.
+
+    A title with the same vote_count lands at a different `bayes` depending on how
+    vote-heavy its stratum is — that is the correction, and it does not require
+    the foreign stratum to be rated lower on average.
+    """
+    stats = policy.bayes_stats(_catalog(movie_en=400, movie_xx=400))
+    en_m = stats[("movie", "en")][1]
+    xx_m = stats[("movie", "xx")][1]
+    assert en_m != xx_m, "strata collapsed to one m"
+
+    same = {"media_type": "movie", "vote_average": 8.0, "vote_count": 100}
+    en = policy.apply_quality({**same, "language": "en"}, stats=stats)
+    xx = policy.apply_quality({**same, "language": "ml"}, stats=stats)
+    # Same votes, different stratum -> different shrinkage. That is the point.
+    assert en["bayes"] != pytest.approx(xx["bayes"], abs=1e-3)
+
+
+def test_gems_mode_is_where_low_vote_titles_get_through():
+    """gems mode deliberately uses a much weaker prior (m_gems = 0.25 * m).
+
+    This is the legitimate place for a well-rated low-vote title to surface —
+    not the blockbuster row, which is what a broken shared m used to do.
+    """
+    stats = policy.bayes_stats(_catalog(movie_en=400, movie_xx=400))
+    out = policy.apply_quality({"media_type": "movie", "language": "en",
+                                "vote_average": 8.4, "vote_count": 60}, stats=stats)
+    assert out["bayes_gems"] > out["bayes"], (
+        "gems prior is not weaker than the blockbuster prior")
+    _c, m, m_gems = stats[("movie", "en")]
+    assert m_gems < m
+    # 60 votes is meaningful weight under the gems prior (~24 %), where under the
+    # blockbuster prior it is ~7 %.
+    assert 60 / (60 + m_gems) > 0.2
+    assert 60 / (60 + m_gems) > 2 * (60 / (60 + m))
 
 
 # ------------------------------------------------------------- ingest stamping
