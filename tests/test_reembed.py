@@ -277,6 +277,29 @@ def test_rejected_update_vectors_writes_nothing():
         assert point["vector"] == snapshot[pid][1], f"{pid}: vector changed"
 
 
+def test_sweep_does_not_fetch_each_point():
+    """Throughput guard: the sweep must not do one round trip per title.
+
+    Measured on Qdrant Cloud: each POST /points costs ~0.43 s, so fetching 64
+    points per batch was ~80 % of the run's wall time (6.9 h projected for 45k
+    titles). `_collect` already carries the built text out of the scroll, so the
+    sweep needs ZERO per-point reads.
+    """
+    q = _seed(3)
+    reads = {"n": 0}
+    real_get = q.get_point
+
+    async def counting_get(pid, **kw):
+        reads["n"] += 1
+        return await real_get(pid, **kw)
+
+    q.get_point = counting_get
+    _reembed_against(q, batch=1)
+    # Only the preflight probe may read: once BEFORE and once AFTER the write, to
+    # prove the payload survived. The sweep itself reads nothing.
+    assert reads["n"] == 2, f"the sweep made {reads['n'] - 2} per-point fetches"
+
+
 def test_overview_words_constant_is_sane():
     # ~120 words is ~170 word pieces for MiniLM: headroom under 256 tokens.
     assert 80 <= OVERVIEW_WORDS <= 160

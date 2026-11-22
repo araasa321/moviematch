@@ -65,9 +65,15 @@ def _plan(record: dict[str, Any]) -> tuple[str, str] | None:
 
 
 async def _collect(qdrant: QdrantClient, *, limit: int | None,
-                   ) -> list[tuple[str, str]]:
-    """Scroll the catalog and return [(point_id, new_hash)] needing a re-embed."""
-    todo: list[tuple[str, str]] = []
+                   ) -> list[tuple[str, str, str]]:
+    """Scroll the catalog and return [(point_id, text, new_hash)] to re-embed.
+
+    The TEXT is carried out of this pass on purpose. The scroll already fetched
+    every recipe field, so re-fetching each point's payload later would cost one
+    round trip per title (~0.43 s each on Qdrant Cloud) — measured at ~80 % of
+    the whole run's wall time, for data we already hold.
+    """
+    todo: list[tuple[str, str, str]] = []
     offset = None
     scanned = 0
     while True:
@@ -77,7 +83,8 @@ async def _collect(qdrant: QdrantClient, *, limit: int | None,
             scanned += 1
             planned = _plan(point)
             if planned is not None:
-                todo.append((str(point["id"]), planned[1]))
+                text, new_hash = planned
+                todo.append((str(point["id"]), text, new_hash))
                 if limit is not None and len(todo) >= limit:
                     log.info("scanned %s points; stopping at --limit %s", scanned, limit)
                     return todo
@@ -99,7 +106,12 @@ async def reembed(*, dry_run: bool = False, limit: int | None = None,
     stats["scanned"] = total
     stats["changed"] = len(todo)
     stats["unchanged"] = max(0, total - len(todo))
-    log.info("%s/%s points need re-embedding", len(todo), total)
+    if limit is not None:
+        log.info("%s point(s) selected for re-embedding (--limit %s, catalog has %s)",
+                 len(todo), limit, total)
+    else:
+        log.info("%s of %s points need re-embedding (%s already current)",
+                 len(todo), total, stats["unchanged"])
     if dry_run:
         log.info("--dry-run: no writes performed")
         return stats
@@ -151,25 +163,15 @@ async def reembed(*, dry_run: bool = False, limit: int | None = None,
     todo = todo[1:]
 
     # ---- the sweep -----------------------------------------------------------
+    # No per-point fetch: `_collect` already carried the built TEXT out of the
+    # scroll that read the recipe fields. The write is still vectors + text_hash
+    # only — nothing here goes through upsert(), so no payload field can be
+    # replaced.
     for start in range(0, len(todo), batch):
         chunk = todo[start:start + batch]
-        # Re-fetch each point's FULL payload once, purely to rebuild the source
-        # TEXT. The write below is still vectors + text_hash: nothing here goes
-        # through upsert(), so no payload field can be replaced.
-        pids: list[str] = []
-        texts: list[str] = []
-        hashes: list[tuple[dict[str, Any], list[str]]] = []
-        for pid, _new_hash in chunk:
-            record = await qdrant.get_point(pid, with_payload=True)
-            if record is None:
-                log.warning("point %s vanished mid-run; skipping", pid)
-                continue
-            text = build_text(record.get("payload") or {})
-            pids.append(pid)
-            texts.append(text)
-            hashes.append(({"text_hash": text_hash(text)}, [pid]))
-        if not pids:
-            continue
+        pids = [pid for pid, _text, _h in chunk]
+        texts = [text for _pid, text, _h in chunk]
+        hashes = [({"text_hash": h}, [pid]) for pid, _text, h in chunk]
         encoded = embedder.encode(texts)
         await qdrant.update_vectors([(pid, vec) for pid, vec in zip(pids, encoded)],
                                     wait=False)
@@ -185,7 +187,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         help="report how many titles would be re-embedded; write nothing")
     parser.add_argument("--limit", type=int, default=None,
                         help="stop after N changed points (smoke run)")
-    parser.add_argument("--batch", type=int, default=64)
+    parser.add_argument("--batch", type=int, default=256,
+                        help="points per embed+write round trip (default 256)")
     parser.add_argument("--model", default="sentence-transformers/all-MiniLM-L6-v2")
     return parser.parse_args(argv)
 
