@@ -33,6 +33,7 @@ from .taste import (
     Taste,
     compute_taste,
     median_year,
+    taste_queries,
     rating_weight,
 )
 
@@ -236,6 +237,7 @@ def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
     seed_title = because_seed(store, state, media_type) if row == "because" else None
     ann_limit = 200
     sim_floor = 0.35
+    multi_intent = 1
     if row == "because":
         if seed_title is None:
             return RowPlan([], taste, count_positive_signals(state), excluded, {"reason": "no_seed"})
@@ -247,7 +249,11 @@ def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
     else:
         if not taste.ready or taste.query is None:
             return RowPlan([], taste, count_positive_signals(state), excluded, {"reason": "cold_start"})
-        query = taste.query
+        # Multi-intent: one query per distinct interest instead of the neighbours
+        # of the single average taste. Falls back to the plain query when there is
+        # too little history to cluster.
+        query = taste_queries(state.signals, taste)
+        multi_intent = len(query)
 
     pool = _candidate_pool(store, query, media_type=media_type, langs=row_langs,
                            excluded=excluded, year_now=year_now, ann_limit=ann_limit,
@@ -290,10 +296,18 @@ def build_row(store: Store, history: dict[str, Any], media_type: str, row: str,
                     "pool_source": "ann" if hasattr(store, "search") else "scan"})
 
 
-def _candidate_pool(store: Store, query: np.ndarray, *, media_type: str,
+def _candidate_pool(store: Store, query: np.ndarray | Sequence[np.ndarray], *,
+                    media_type: str,
                     langs: Sequence[str], excluded: set[str], year_now: int,
                     ann_limit: int, genre: str | None = None) -> list[Candidate]:
     """Candidates for ranking.
+
+    `query` is ONE vector or a LIST of them. A list means multi-intent retrieval
+    (see taste.taste_queries): the pool is the union of each interest's nearest
+    neighbours, so a user with several distinct tastes gets candidates for all of
+    them instead of the neighbours of their average taste. Measured before this
+    change: only 10 % of a real user's next watches were inside a single-centroid
+    top-200, i.e. the ranker was never given the chance to pick them.
 
     Large catalogs are queried with ANN (Qdrant does the distance maths and the
     §9.1 filters); the in-memory stores used by tests scan directly. Both paths
@@ -304,13 +318,24 @@ def _candidate_pool(store: Store, query: np.ndarray, *, media_type: str,
     so an exact-match Qdrant `match` could silently drop everything on a casing
     difference. Compare after normalising instead.
     """
+    queries = [query] if isinstance(query, np.ndarray) else list(query)
+    queries = [q for q in queries if q is not None]
+    if not queries:
+        return []
     if hasattr(store, "search"):
         # Over-fetch when filtering by genre, otherwise a narrow genre can yield
-        # almost nothing from the default ANN window.
-        fetch = ann_limit * 4 if genre else ann_limit
+        # almost nothing from the default ANN window. With several queries the
+        # per-query budget shrinks so the union stays near ann_limit.
+        per_query = max(20, ann_limit // max(1, len(queries)))
+        fetch = per_query * 4 if genre else per_query
         try:
-            records = store.search(query, media_type=media_type, limit=fetch,
-                                   langs=langs, exclude=excluded)
+            many = getattr(store, "search_many", None)
+            if len(queries) > 1 and callable(many):
+                records = many(queries, media_type=media_type, limit=fetch,
+                               langs=langs, exclude=excluded)
+            else:
+                records = store.search(queries[0], media_type=media_type, limit=fetch,
+                                       langs=langs, exclude=excluded)
         except Exception:  # noqa: BLE001 - fall back rather than fail the row
             records = []
         if records:

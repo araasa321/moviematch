@@ -176,6 +176,51 @@ class QdrantClient:
         data = await self._request("POST", f"/collections/{collection}/points/search", body)
         return data.get("result") or []
 
+    async def search_batch(self, vectors: Sequence[Sequence[float]], *,
+                           collection: str = TITLES, limit: int = 200,
+                           filters: dict[str, Any] | None = None,
+                           with_payload: bool | Sequence[str] = True
+                           ) -> list[dict[str, Any]]:
+        """Run several vector searches in ONE request, flattened into one list.
+
+        POST /collections/{c}/points/query/batch takes an array of searches and
+        lets the query planner share work between them (they all carry the same
+        filter here). Each search returns its own hit list; this flattens them and
+        leaves deduplication to the caller.
+
+        Falls back to sequential `/points/search` when the cluster rejects the
+        batch endpoint, so an older Qdrant still serves a correct row — just with k
+        round trips instead of one.
+        """
+        if not vectors:
+            return []
+        searches: list[dict[str, Any]] = []
+        for vector in vectors:
+            entry: dict[str, Any] = {"query": list(vector), "limit": limit,
+                                     "with_payload": with_payload, "with_vector": True}
+            if filters:
+                entry["filter"] = filters
+            searches.append(entry)
+        try:
+            data = await self._request(
+                "POST", f"/collections/{collection}/points/query/batch",
+                {"searches": searches})
+            result = data.get("result")
+            if isinstance(result, list):
+                out: list[dict[str, Any]] = []
+                for group in result:
+                    if isinstance(group, dict):
+                        out.extend(group.get("points") or [])
+                return out
+        except Exception as exc:  # noqa: BLE001 - older cluster: fall back below
+            log.info("query/batch unavailable (%s); falling back to sequential search",
+                     type(exc).__name__)
+        out = []
+        for vector in vectors:
+            out.extend(await self.search(vector, collection=collection, limit=limit,
+                                         filters=filters, with_payload=with_payload))
+        return out
+
     async def retrieve(self, ids: Sequence[str], *, collection: str = TITLES,
                        with_payload: bool = True,
                        with_vector: bool = True) -> list[dict[str, Any]]:

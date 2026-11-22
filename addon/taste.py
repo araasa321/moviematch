@@ -38,6 +38,106 @@ QUERY_MIX = 0.7
 MIN_POSITIVE_SIGNALS = 3      # below this -> cold start (§8.4)
 MIN_SESSION_NORM = 0.4        # reject near-zero session vectors (unknown vectors)
 
+# --- multi-intent retrieval ---------------------------------------------------
+# A single averaged centroid is the mean of everything the user watches, and that
+# mean is a film nobody wants to watch: watch sci-fi AND crime AND Malayalam drama
+# and the centroid lands in a generic mainstream zone. Measured on a real 45k
+# catalog + real Trakt history: only 10 % of the user's next watches were even
+# inside the ANN top-200, so no amount of re-ranking could help.
+#
+# Splitting the taste into a few centroids and querying each gives the ranker a
+# pool that covers the user's ACTUAL interests. Cost is one batched Qdrant request
+# (POST /points/query/batch), not k round trips.
+CLUSTER_MIN_SIGNALS = 12      # below this, one centroid is all the evidence there is
+CLUSTER_MAX = 4               # more clusters than this mostly re-finds the same titles
+CLUSTER_ITERS = 12            # k-means passes; deterministic given the seeding below
+CLUSTER_SEED_SIM = 0.97       # centroids this similar are duplicates, drop them
+
+
+def _kmeans(matrix: np.ndarray, k: int, iters: int = CLUSTER_ITERS) -> np.ndarray:
+    """Deterministic k-means++ over row-normalised vectors.
+
+    Deterministic on purpose: the row set is stable, so seeding by furthest-point
+    traversal (rather than random init) keeps `foryou` reproducible between two
+    requests on the same history. A random init would make the row drift on every
+    cache miss for no user-visible benefit.
+    """
+    rows = np.asarray(matrix, dtype=np.float64)
+    n = rows.shape[0]
+    if n == 0:
+        return np.zeros((0, rows.shape[1] if rows.ndim > 1 else 0), dtype=np.float64)
+    k = max(1, min(k, n))
+
+    # Furthest-point seeding: start at the highest-norm row, then repeatedly pick
+    # the row least similar to everything chosen so far.
+    norms = np.linalg.norm(rows, axis=1)
+    first = int(np.argmax(norms))
+    centroids = [rows[first]]
+    if k > 1:
+        # distance to nearest chosen centroid
+        min_sim = rows @ centroids[0]
+        for _ in range(k - 1):
+            nxt = int(np.argmin(min_sim))
+            centroids.append(rows[nxt])
+            min_sim = np.maximum(min_sim, rows @ rows[nxt])
+    centres = np.vstack(centroids)
+
+    for _ in range(iters):
+        sims = rows @ centres.T
+        assign = np.argmax(sims, axis=1)
+        moved = False
+        for i in range(centres.shape[0]):
+            members = rows[assign == i]
+            if len(members) == 0:
+                continue
+            new = members.mean(axis=0)
+            norm = np.linalg.norm(new)
+            if norm > 0:
+                new = new / norm
+            if not np.allclose(new, centres[i], atol=1e-6):
+                moved = True
+                centres[i] = new
+        if not moved:
+            break
+    return centres
+
+
+def taste_queries(signals: Sequence[Signal], taste: Taste,
+                  k: int = CLUSTER_MAX) -> list[np.ndarray]:
+    """Retrieval queries for a `foryou`/`gems` row: one per distinct interest.
+
+    Returns the plain taste query when there is too little signal to cluster, so
+    callers can always treat the result as "one or more queries" and a cold-ish
+    user keeps exactly today's behaviour.
+    """
+    positives = [s for s in signals if s.weight > 0 and np.any(np.asarray(s.vector))]
+    if taste.query is None or len(positives) < CLUSTER_MIN_SIGNALS:
+        return [taste.query] if taste.query is not None else []
+
+    rows = np.vstack([normalize(s.vector) for s in positives])
+    centres = _kmeans(rows, k)
+    if centres.shape[0] == 0:
+        return [taste.query]
+
+    # Drop duplicate centroids: if two clusters landed on the same taste, the
+    # second query would spend budget re-fetching the same neighbours.
+    kept: list[np.ndarray] = []
+    for centre in centres:
+        centre = normalize(centre)
+        if not np.any(centre):
+            continue
+        if any(float(centre @ other) > CLUSTER_SEED_SIM for other in kept):
+            continue
+        kept.append(centre)
+    if not kept:
+        return [taste.query]
+    # Always keep the blended taste query too: it is what the session signal and
+    # the recency decay are expressed through, and it sometimes lands between
+    # clusters where no single centroid does.
+    if all(float(taste.query @ other) <= CLUSTER_SEED_SIM for other in kept):
+        kept.append(taste.query)
+    return kept[: k + 1]
+
 
 def rating_weight(rating: int) -> float:
     """(r - 6) / 2 on Trakt's 1-10 scale."""

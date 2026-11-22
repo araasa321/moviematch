@@ -150,6 +150,72 @@ class QdrantStore:
             self._cache.setdefault(record.point_id, record)
         return records
 
+    def search_many(self, vectors: Sequence[Sequence[float] | np.ndarray], *,
+                    media_type: str, limit: int, langs: Sequence[str] = (),
+                    min_votes: int | None = None,
+                    exclude: Iterable[str] = ()) -> list[Record]:
+        """ANN query with SEVERAL query vectors, deduped by point id.
+
+        This is what multi-intent retrieval needs: one request covering every taste
+        cluster instead of k sequential round trips. On a 0.1-vCPU instance the
+        round trips dominated, and Qdrant's query planner shares the segment pass
+        across searches that carry the same filter.
+
+        Falls back to sequential `search()` when the client has no batched
+        endpoint (the in-memory fakes), so behaviour is identical either way.
+        """
+        from .qdrant import SEARCH_PAYLOAD_FIELDS, payload_filter
+
+        vectors = [v for v in vectors if v is not None]
+        if not vectors:
+            return []
+        if len(vectors) == 1:
+            return self.search(vectors[0], media_type=media_type, limit=limit,
+                               langs=langs, min_votes=min_votes, exclude=exclude)
+
+        filters = payload_filter(media_type=media_type, langs=langs,
+                                 min_votes=min_votes, exclude=exclude)
+        batched = getattr(self.client, "search_batch", None)
+        try:
+            if callable(batched) and not _requires_sequential(self.client):
+                raw = _run(batched([np.asarray(v, dtype=np.float32).tolist()
+                                    for v in vectors],
+                                   collection=self.collection, limit=limit,
+                                   filters=filters,
+                                   with_payload=list(SEARCH_PAYLOAD_FIELDS)))
+            else:
+                raw = []
+                for vec in vectors:
+                    raw.extend(_run(self.client.search(
+                        np.asarray(vec, dtype=np.float32).tolist(),
+                        collection=self.collection, limit=limit, filters=filters,
+                        with_payload=list(SEARCH_PAYLOAD_FIELDS))))
+        except Exception as exc:  # noqa: BLE001 - never 500 a Stremio request
+            log.warning("qdrant batch search failed: %s", type(exc).__name__)
+            return []
+
+        seen: set[str] = set()
+        records: list[Record] = []
+        for hit in raw:
+            record = _record(hit)
+            if record is None or record.point_id in seen:
+                continue
+            seen.add(record.point_id)
+            records.append(record)
+        for record in records:
+            self._cache.setdefault(record.point_id, record)
+        return records
+
+
+def _requires_sequential(client: Any) -> bool:
+    """True for fake clients whose search_batch is not a real Qdrant batcher.
+
+    Explicitly marks test doubles apart from `QdrantClient`. Without this a fake
+    defining `search_batch` with different semantics would silently change what
+    every row test exercises.
+    """
+    return getattr(client, "IS_FAKE", False)
+
 
 _EXECUTOR: concurrent.futures.ThreadPoolExecutor | None = None
 

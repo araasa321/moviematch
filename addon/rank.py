@@ -157,7 +157,7 @@ class Candidate:
 
 
 def rank(
-    query_vec: Sequence[float],
+    query_vec: Sequence[float] | Sequence[Sequence[float]],
     candidates: Sequence[Candidate],
     *,
     mode: str = "blockbuster",
@@ -174,6 +174,10 @@ def rank(
     """Apply guards -> score -> collection dedupe -> MMR -> exploration -> top N.
 
     Args:
+        query_vec: ONE query vector, or a list of them for multi-intent retrieval.
+            With a list, each candidate is scored by its best-matching intent
+            (max over queries), so a user with several distinct tastes is not
+            judged entirely against their average taste.
         ann_limit: how many candidates to consider before ranking. `because` rows
             pass a larger value: a single seed's nearest 200 are almost all
             franchise clones (measured — see FINDINGS-EMBEDDINGS.md), so the
@@ -182,7 +186,19 @@ def rank(
             same reason.
     """
     w_sim, w_q, w_r, w_e = WEIGHTS.get(mode, WEIGHTS["blockbuster"])
-    q = normalize(query_vec)
+    # `query_vec` is one vector OR a list of them (multi-intent retrieval). A
+    # candidate is scored by its similarity to its OWN best-matching intent, not
+    # to an arbitrary one: a user who watches sci-fi and Malayalam drama must not
+    # have every drama scored against the sci-fi centroid.
+    #
+    # "One vector" is decided by the dimensionality of the array as a whole, which
+    # handles a bare `[1, 0, 0]`, a numpy row, AND a stacked (k, dim) array without
+    # inspecting individual elements.
+    arr = np.asarray(query_vec, dtype=np.float64)
+    raw_queries = [arr] if arr.ndim == 1 else [row for row in arr]
+    q_multi = [normalize(v) for v in raw_queries]
+    q_multi = [v for v in q_multi if np.size(v) and np.any(v)]
+    q = q_multi[0] if q_multi else normalize(np.asarray(query_vec, dtype=np.float64))
     seed_cast = {c for c in seed_cast if c}
     year_now = year_now if year_now is not None else date.today().year
 
@@ -200,7 +216,11 @@ def rank(
             year = payload.get("year")
             if not isinstance(year, int) or year < year_now - 1:
                 continue
-        cand.similarity = float(np.dot(normalize(cand.vector), q))
+        unit = normalize(cand.vector)
+        if len(q_multi) == 1:
+            cand.similarity = float(np.dot(unit, q))
+        else:
+            cand.similarity = max(float(np.dot(unit, qi)) for qi in q_multi)
         if cand.similarity < sim_floor:
             continue
         # §9.4 score terms

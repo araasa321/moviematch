@@ -24,3 +24,6 @@ bootstrap-stats.json
 .env
 .env.*
 !.env.example
+
+# local replay cache (contains real Trakt history)
+.replay-history.json
