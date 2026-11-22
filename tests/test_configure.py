@@ -64,16 +64,18 @@ def test_split_row_id_empty_language_is_none():
 
 # ------------------------------------------------------------------ manifest
 def test_merged_manifest_has_one_row_per_catalog_and_type():
+    # Two rows (foryou, because) x two media types. `new4you` was removed with
+    # the ranker, so this is 4, not 6.
     man = build_manifest("https://x", "blob", langs=("en", "ja"), layout="merged")
     ids = [c["id"] for c in man["catalogs"]]
-    assert len(ids) == 6
+    assert len(ids) == 4
     assert all("@" not in i for i in ids)
 
 
 def test_separate_manifest_repeats_each_row_per_language():
     man = build_manifest("https://x", "blob", langs=("en", "ja"), layout="separate")
     ids = [c["id"] for c in man["catalogs"]]
-    assert len(ids) == 12
+    assert len(ids) == 8
     assert "foryou@en" in ids and "foryou@ja" in ids
 
 
@@ -81,7 +83,7 @@ def test_separate_with_single_language_falls_back_to_merged():
     """One language's "separate" set is identical to merged under a worse name."""
     man = build_manifest("https://x", "blob", langs=("en",), layout="separate")
     assert all("@" not in c["id"] for c in man["catalogs"])
-    assert len(man["catalogs"]) == 6
+    assert len(man["catalogs"]) == 4
 
 
 def test_separate_rows_are_labelled_by_language():

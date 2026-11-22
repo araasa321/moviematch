@@ -15,12 +15,17 @@ PAGE_SIZE = 15
 MAX_RANKED = 200
 
 # catalog id -> (display name, dynamic "because" name?)
+#
+# Trakt drives these rows now: `foryou` is /recommendations/{movies|shows} and
+# `because` is /{movies|shows}/:id/related for the most recent watch. Trakt's
+# order is preserved, so there is nothing left to rank.
+#
+# `new4you` was removed with the ranker — it never had an implementation and its
+# intent (fresh titles for your taste) is what /recommendations already does.
 CATALOGS: dict[str, tuple[str, bool]] = {
     "foryou": ("🎯 For You", False),
     "because": ("🎬 Because you watched {seed}", True),
-    "new4you": ("🆕 New for Your Taste", False),
 }
-# M6 adds tonight / trending / gems (PLAN §10.3)
 
 GENRE_OPTIONS = ["Action", "Comedy", "Drama", "Sci-Fi", "Thriller", "Horror", "Romance", "Animation"]
 

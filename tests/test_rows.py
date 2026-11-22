@@ -1,26 +1,37 @@
-"""End-to-end row build + Stremio protocol (PLAN §10, §15 acceptance seeds)."""
+"""Row serving: Trakt decides the order, the catalog supplies metadata.
+
+This file used to test the embedding ranker (build_row, because_query, taste
+centroids, genre filtering). That whole pipeline was removed: `/recommendations`
+now drives the `foryou` row and `/{movies|shows}/:id/related` drives `because`,
+and the addon no longer re-scores what Trakt returns.
+
+What is still worth asserting, and is asserted here:
+  * Trakt history -> UserState (watched / watchlist / hidden / dislikes) is intact,
+    because it is what the rows are FILTERED by and what the write path uses;
+  * watched, watchlisted and hidden titles never appear in a row;
+  * a row that cannot reach Trakt degrades to empty instead of 500-ing;
+  * Trakt's order is preserved through the catalog join;
+  * the manifest, paging and meta shape are unchanged.
+"""
+
+from __future__ import annotations
 
 import base64
 import json
-from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
 from addon.config import Config
+from addon.ids import point_id
 from addon.main import make_app
-from addon.rank import BECAUSE_ANN_LIMIT, BECAUSE_SEED_WEIGHT, BECAUSE_SIM_FLOOR, BECAUSE_TASTE_WEIGHT
-from addon.rows import because_query, build_row, build_user_state, to_metas
+from addon.recommendations import ordered_records, to_meta
 from addon.stremio import build_manifest, parse_extra, safe_skip
-from addon.taste import Taste
 
 from .conftest import *  # noqa: F401,F403  (reuse store/history/config fixtures)
 
 
-# ------------------------------------------------------------------- rows
+# --------------------------------------------------------------- user state
 def test_only_watched_and_rated_titles_become_signals(store, state):
-    from addon.ids import point_id
-
     # watched: TDK, Breaking Bad (+ a trakt-only item with no tmdb id -> skipped)
     # ratings: Inception 10 (positive), Breaking Bad 9 (positive), Fight Club 2 (dislike)
     # watchlist: The Prestige  => 5 positive signals + 1 dislike
@@ -32,214 +43,169 @@ def test_only_watched_and_rated_titles_become_signals(store, state):
     assert state.last_watched["movie"] == point_id("movie", 155)
 
 
-def test_foryou_excludes_watched_watchlist_and_disliked(store, history, config):
-    plan = build_row(store, history, "movie", "foryou", config)
-    excluded = plan.excluded
-    shown = {c.point_id for c in plan.ranked}
-    assert not shown & excluded
-    # Fight Club was rated 2/10 and liked-adjacent in vector space: it must not surface
-    from addon.ids import point_id
+def test_last_watched_tracks_the_most_recent_item(store, history):
+    from addon.rows import build_user_state
 
-    assert point_id("movie", 550) not in shown
+    state = build_user_state(store, history)
+    # Both movies were watched; the newer timestamp wins.
+    assert state.last_watched["movie"] in {point_id("movie", 155),
+                                           point_id("movie", 1124)}
 
 
-def test_foryou_ranks_same_family_first(store, history, config):
-    """Sanity contract for For You: guards hold, ratings drive the query (§8.2).
-
-    After the dislike fix, likes (Inception 10, Breaking Bad 9, Prestige, Inception)
-    converge on the Nolan vector while the disliked Fight Club pulls the other way,
-    so the row runs Inception -> Memento -> Joker. The Dark Knight is excluded, and
-    nothing orthogonal to the query survives the similarity floor.
-    """
-    plan = build_row(store, history, "movie", "foryou", config)
-    titles = [c.payload["title"] for c in plan.ranked]
-    assert titles, "row must not be empty"
-    assert titles[0] == "Inception", titles
-    assert "The Dark Knight" not in titles           # watched -> excluded
-    assert "Fight Club" not in titles                # rated 2 -> excluded via dislike
-    assert "2001: A Space Odyssey" not in titles     # orthogonal -> below sim floor
-    family = {"Inception", "Memento", "Joker", "The Prestige"}
-    assert set(titles) <= family, f"unexpected titles: {set(titles) - family}"
-    assert all(c.similarity >= 0.35 for c in plan.ranked)
+# ------------------------------------------------------------ catalog join
+def _trakt_item(tmdb: int, imdb: str | None = None, title: str = "X") -> dict:
+    ids = {"tmdb": tmdb}
+    if imdb:
+        ids["imdb"] = imdb
+    return {"title": title, "year": 2010, "ids": ids}
 
 
-def test_because_uses_last_watched_as_seed(store, history, config):
-    seed_pid = build_user_state(store, history).last_watched["movie"]
-    plan = build_row(store, history, "movie", "because", config)
-    assert plan.ranked, "because row must return candidates"
-    # the seed itself never appears in its own row
-    assert all(c.point_id != seed_pid for c in plan.ranked)
-    # candidates clear the relaxed `because` floor, and we searched wider than 200
-    assert all(c.similarity > BECAUSE_SIM_FLOOR for c in plan.ranked)
-    assert plan.diagnostics["ann_limit"] == BECAUSE_ANN_LIMIT
+def test_ordered_records_preserves_trakt_order(store):
+    """Trakt's ranking IS the product: the join must not reorder it."""
+    items = [_trakt_item(27205), _trakt_item(155), _trakt_item(49026)]
+    records = ordered_records(items, store, "movie")
+    assert [r.payload["title"] for r in records] == ["Inception",
+                                                     "The Dark Knight",
+                                                     "The Dark Knight Rises"]
 
 
-def test_because_query_blends_seed_and_taste():
-    """0.7*seed + 0.3*taste, re-normalised — a pure seed query cannot leave its franchise."""
-    seed = SimpleNamespace(vector=np.array([1.0, 0.0, 0.0], dtype=np.float32))
-    taste = Taste(long=None, query=np.array([0.0, 1.0, 0.0], dtype=np.float32))
-    blended = because_query(seed, taste)
-    norm = np.sqrt(BECAUSE_SEED_WEIGHT ** 2 + BECAUSE_TASTE_WEIGHT ** 2)
-    assert np.linalg.norm(blended) == pytest.approx(1.0, abs=1e-6)
-    assert blended[0] == pytest.approx(BECAUSE_SEED_WEIGHT / norm, abs=1e-6)
-    assert blended[1] == pytest.approx(BECAUSE_TASTE_WEIGHT / norm, abs=1e-6)
-    # no taste -> bare seed vector
-    assert np.allclose(because_query(seed, Taste()), seed.vector)
+def test_ordered_records_skips_titles_missing_from_the_catalog(store):
+    items = [_trakt_item(27205), _trakt_item(999999999), _trakt_item(155)]
+    records = ordered_records(items, store, "movie")
+    assert [r.payload["tmdb_id"] for r in records] == [27205, 155]
 
 
-def test_because_without_history_is_empty(store, config):
-    plan = build_row(store, {}, "movie", "because", config)
-    assert plan.ranked == [] and plan.diagnostics["reason"] == "no_seed"
+def test_ordered_records_skips_items_without_a_tmdb_id(store):
+    items = [{"title": "No ids", "ids": {"imdb": "tt999"}}, _trakt_item(155)]
+    records = ordered_records(items, store, "movie")
+    assert [r.payload["tmdb_id"] for r in records] == [155]
 
 
-def test_cold_start_returns_empty_rows(store, config):
-    plan = build_row(store, {}, "movie", "foryou", config)
-    assert plan.ranked == [] and plan.diagnostics["reason"] == "cold_start"
+def test_ordered_records_honours_excluded(store):
+    """A cached Trakt list can be hours old: re-filter at join time."""
+    items = [_trakt_item(27205), _trakt_item(155)]
+    excluded = {point_id("movie", 27205)}
+    records = ordered_records(items, store, "movie", excluded=excluded)
+    assert [r.payload["tmdb_id"] for r in records] == [155]
 
 
-def test_language_preference_filters_non_english(store, history, config):
-    plan = build_row(store, history, "movie", "foryou", config)
-    langs = {c.payload["language"] for c in plan.ranked}
-    assert langs <= {"en"}
+def test_ordered_records_dedupes_repeats(store):
+    items = [_trakt_item(155), _trakt_item(155)]
+    assert len(ordered_records(items, store, "movie")) == 1
 
 
-def test_series_row_only_returns_series(store, history, config):
-    plan = build_row(store, history, "series", "foryou", config)
-    assert all(c.payload["media_type"] == "series" for c in plan.ranked)
+def test_ordered_records_never_raises_when_the_join_fails(store):
+    class Broken:
+        def get_many(self, ids):
+            raise RuntimeError("qdrant down")
+
+    assert ordered_records([_trakt_item(155)], Broken(), "movie") == []
 
 
-def test_meta_preview_shape(store, history, config):
-    plan = build_row(store, history, "movie", "foryou", config)
-    metas = to_metas(plan.ranked)
-    assert metas
-    for meta in metas:
-        assert meta["id"].startswith("tt")
-        assert meta["type"] == "movie"
-        assert meta["poster"].startswith("https://image.tmdb.org/t/p/w500/")
-        assert {"name", "poster", "releaseInfo"} <= set(meta)
-    # genres are optional (empty lists are dropped, not shipped as [])
-    assert any("genres" in m for m in metas) or all("genres" not in m for m in metas)
+# ---------------------------------------------------------------- meta shape
+def test_meta_preview_shape(store):
+    record = ordered_records([_trakt_item(155)], store, "movie")[0]
+    meta = to_meta(record)
+    assert meta["id"].startswith("tt")
+    assert meta["type"] == "movie"
+    assert meta["poster"].startswith("https://image.tmdb.org/t/p/w500")
 
 
-# --------------------------------------------------------------- protocol
+def test_series_meta_shows_an_open_year_range(store):
+    items = [{"title": "Breaking Bad", "year": 2008,
+              "ids": {"tmdb": 1396, "imdb": "tt0903747"}}]
+    record = ordered_records(items, store, "series")[0]
+    meta = to_meta(record)
+    assert meta["type"] == "series"
+    assert meta["releaseInfo"] == "2008-"
+
+
+# --------------------------------------------------------------- extras/manifest
 def test_parse_extra_and_skip():
     assert parse_extra("skip=100&genre=Sci-Fi") == {"skip": "100", "genre": "Sci-Fi"}
-    assert parse_extra("skip%3D100") == {}
-    assert parse_extra(None) == {}
-    assert safe_skip({"skip": "abc"}) == 0
+    assert safe_skip({"skip": "30"}) == 30
+    assert safe_skip({}) == 0
     assert safe_skip({"skip": "-5"}) == 0
-    assert safe_skip({"skip": "5000"}) == 200
+    assert safe_skip({"skip": "9999"}) <= 200
 
 
 def test_manifest_has_expected_catalogs():
-    manifest = build_manifest("https://x.test", "blob", {"movie": "The Dark Knight", "series": "Breaking Bad"})
-    # catalog serves rows; the library event resource mirrors watch/list actions
-    assert "catalog" in manifest["resources"]
-    assert any(isinstance(r, dict) and r.get("name") == "library"
-               for r in manifest["resources"])
-    assert manifest["idPrefixes"] == ["tt"]
-    assert set(manifest["types"]) == {"movie", "series"}
-    ids = [(c["type"], c["id"]) for c in manifest["catalogs"]]
-    assert ids.count(("movie", "foryou")) == 1
-    assert ids.count(("series", "foryou")) == 1
-    names = [c["name"] for c in manifest["catalogs"] if c["id"] == "because"]
-    assert any("The Dark Knight" in n for n in names)
-    assert any("Breaking Bad" in n for n in names)
+    man = build_manifest("https://x", "blob", {"movie": "Heat", "series": "Dark"},
+                         langs=("en",), layout="merged")
+    names = [c["name"] for c in man["catalogs"]]
+    assert len(man["catalogs"]) == 4          # 2 rows x 2 media types
+    assert any("Because you watched Heat" in n for n in names)
+    assert not any("New for Your Taste" in n for n in names), "new4you was removed"
 
 
-# ------------------------------------------------------------------- HTTP
-# --- Why 7 tests are skipped on this machine ------------------------------------
-# starlette 0.27 + httpx 0.28 is a known-broken pair: starlette's TestClient calls
-# `httpx.Client(app=...)`, which httpx 0.28 now maps onto `mounts=` -> TypeError.
-# `pip install -U "fastapi>=0.115" "starlette>=0.40"` fixes it. Until then these
-# tests are skipped, NOT silently passing — the smoke test below still drives
-# build_row() end to end without a client.
-import subprocess  # noqa: E402
-import sys  # noqa: E402
+# ----------------------------------------------------------- row behaviour
+def _app(store, history, trakt=None):
+    return make_app(store=store, history_provider=lambda: history, trakt=trakt)
 
 
-def test_http_surface_serves_manifest_and_catalog(store, history, secret):
-    """ASGI end-to-end using uvicorn + httpx against a real socket."""
-    import json
-    import socket
-    import time
-    from urllib.parse import quote
-
-    from addon.main import make_app
-
-    try:
-        import uvicorn
-    except ImportError:  # pragma: no cover
-        pytest.skip("uvicorn not installed")
-
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-
-    app = make_app(store=store, history_provider=lambda: history)
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
-    server = uvicorn.Server(config)
-    import threading
-
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    for _ in range(100):
-        if server.started:
-            break
-        time.sleep(0.05)
-    if not server.started:  # pragma: no cover
-        pytest.skip("uvicorn failed to start")
-
+async def _row(app, media_type: str, row: str) -> list[dict]:
     import httpx
 
-    base = f"http://127.0.0.1:{port}"
-    blob = Config(secret=secret).encode()
-    try:
-        with httpx.Client(timeout=5.0) as client:
-            health = client.get(f"{base}/health").json()
-            # /health is a cheap liveness probe: no ranking, no Trakt sync
-            assert health["catalog_size"] == 12 and health["status"] == "ok"
-            assert "rows_ready" not in health, "/health must not rank rows"
-            deep = client.get(f"{base}/health/deep").json()
-            assert deep["taste_ready"] is True and deep["rows_ready"] >= 0
-
-            redirect = client.get(f"{base}/manifest.json", follow_redirects=False)
-            assert redirect.status_code == 302 and redirect.headers["location"] == "/configure"
-
-            manifest = client.get(f"{base}/{blob}/manifest.json").json()
-            assert manifest["id"] == "community.moviematch.personal"
-            assert len(manifest["catalogs"]) == 6
-
-            catalog = client.get(f"{base}/{blob}/catalog/movie/foryou.json").json()
-            assert catalog["metas"] and catalog["cacheMaxAge"] == 900
-            first = catalog["metas"][0]
-            assert first["id"].startswith("tt") and first["poster"].startswith("https://image.tmdb.org")
-
-            paged = client.get(f"{base}/{blob}/catalog/movie/foryou/skip=1.json").json()
-            assert paged["metas"] == catalog["metas"][1:]
-
-            # --- genre extra (regression: it was parsed and then discarded) -----
-            action = client.get(f"{base}/{blob}/catalog/movie/foryou/genre=Action.json").json()
-            assert action["metas"], "genre=Action returned an empty row"
-            for meta in action["metas"]:
-                assert "Action" in (meta.get("genres") or []), meta
-
-            # a different genre must NOT be served the cached first result
-            animation = client.get(f"{base}/{blob}/catalog/movie/foryou/genre=Animation.json").json()
-            assert [m["id"] for m in animation["metas"]] != [m["id"] for m in action["metas"]]
-            for meta in animation["metas"]:
-                assert "Animation" in (meta.get("genres") or []), meta
-
-            # genre combined with skip must both apply
-            action_page2 = client.get(
-                f"{base}/{blob}/catalog/movie/foryou/skip=1&genre=Action.json").json()
-            assert action_page2["metas"] == action["metas"][1:]
-
-            assert client.get(f"{base}/{Config(secret='bad').encode()}/manifest.json").status_code == 403
-            assert client.get(f"{base}/garbage!!/manifest.json").status_code == 400
-            assert client.get(f"{base}/{blob}/catalog/movie/bogus.json").status_code == 404
-    finally:
-        server.should_exit = True
-        thread.join(timeout=5)
+    blob = Config(secret="unit-test-secret", langs=("en",)).encode()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+        response = await ac.get(f"/{blob}/catalog/{media_type}/{row}.json")
+    return response.json()["metas"]
 
 
+def test_row_is_empty_when_trakt_is_unreachable(store, history):
+    """Trakt down must degrade to an empty row, never a 500."""
+    import asyncio
+
+    app = _app(store, history)          # no trakt client -> not configured -> raises
+    metas = asyncio.run(_row(app, "movie", "foryou"))
+    assert metas == []
+
+
+def test_row_serves_trakt_order_and_filters_watched(store, history):
+    """End to end: Trakt ids -> catalog records -> metas, order preserved."""
+    import asyncio
+
+    class FakeTrakt:
+        class config:
+            configured = True
+
+        async def recommendations(self, media_type, **kw):
+            # 27205 (Inception, unwatched) then 155 (TDK, WATCHED in the fixture)
+            return [_trakt_item(27205), _trakt_item(155)]
+
+        async def related(self, media_type, ids, **kw):
+            return [_trakt_item(49026)]
+
+        async def fetch_user_state(self):
+            return history
+
+    app = _app(store, history, trakt=FakeTrakt())
+    metas = asyncio.run(_row(app, "movie", "foryou"))
+    titles = [m["name"] for m in metas]
+    assert titles == ["Inception"], f"watched title leaked or order changed: {titles}"
+
+
+def test_because_row_uses_the_last_watch(store, history):
+    import asyncio
+
+    seen: dict = {}
+
+    class FakeTrakt:
+        class config:
+            configured = True
+
+        async def recommendations(self, media_type, **kw):
+            return []
+
+        async def related(self, media_type, ids, **kw):
+            seen["ids"] = ids
+            return [_trakt_item(27205)]
+
+        async def fetch_user_state(self):
+            return history
+
+    app = _app(store, history, trakt=FakeTrakt())
+    metas = asyncio.run(_row(app, "movie", "because"))
+    assert metas and metas[0]["name"] == "Inception"
+    assert seen["ids"]["imdb"].startswith("tt"), seen

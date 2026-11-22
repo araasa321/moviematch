@@ -38,24 +38,24 @@ from .fixtures import trakt_history
 from .library import handle_library_event
 from .memory_store import MemoryStore, load_records_from_json
 from .qdrant import QdrantClient, QdrantConfig
-from .rows import RowPlan, build_row, build_user_state, to_metas
+from .recommendations import (RECOMMENDATIONS_MAX_STALE, RECOMMENDATIONS_TTL,
+                              RecommendationCache, ordered_records, to_meta)
+from .rows import RowPlan, build_user_state
 from .store import QdrantStore
 from .stremio import (PAGE_SIZE, build_manifest, catalog_response, parse_extra,
                       safe_skip, split_row_id)
 from .trakt import TraktClient, TraktConfig
 
-VALID_ROWS = {"foryou", "because", "new4you"}
+# Trakt decides what is in these rows now (#4b follow-up):
+#   foryou  -> /recommendations/{movies|shows}, Trakt's order preserved
+#   because -> /{movies|shows}/:id/related for the most recent watch
+# `new4you` was removed with the ranker: it had no implementation and folded into
+# the recommendation row.
+VALID_ROWS = {"foryou", "because"}
 VALID_TYPES = {"movie", "series"}
 DEV_SECRET = "dev-secret-please-set-INSTALL_SECRET"
-ROW_CACHE_SECONDS = 900          # §11.3 catalogs: 900 s
-# A row that is legitimately empty (cold start, thin catalogue, unknown genre,
-# unavailable language) used to be recomputed on EVERY request, forever, because
-# _cached_plan only cached `if plan.ranked`. Remember the empty answer briefly
-# instead: long enough to absorb a home-screen open (which fans out to up to 12
-# catalogs at once), short enough that a crawl finishing mid-session is noticed.
-EMPTY_PLAN_TTL = 120.0
-# Short by design: a cache entry must not outlive one ranking cycle, so a user who
-# fixes a bad Trakt token sees the effect within minutes, not after ROW_CACHE_SECONDS.
+# Short by design: a cache entry must not outlive one sync cycle, so a user who
+# fixes a bad Trakt token sees the effect within minutes.
 HISTORY_TTL = 600.0
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
@@ -114,8 +114,11 @@ def make_app(store: Any | None = None,
         languages = LanguageDetector(QdrantClient(qdrant_cfg)
                                      if qdrant_cfg.configured else None)
     started = datetime.now(timezone.utc)
-    # (saved_at, plan, ttl) — ttl is per-entry because an empty plan is cached
-    # for EMPTY_PLAN_TTL while a populated one lives for ROW_CACHE_SECONDS.
+    # Trakt-response cache and its per-(type,row) locks, process-wide.
+    rec_cache = RecommendationCache()
+    rec_locks: dict[tuple[str, str], asyncio.Lock] = {}
+    # (saved_at, plan, ttl) — retained for the /health/deep diagnostic path only;
+    # the serving rows no longer go through the ranker.
     row_cache: dict[tuple, tuple[float, RowPlan, float]] = {}
     # Process-wide, not per-request. `trakt.fetch_user_state()` does up to
     # history x2 + ratings x2 + watchlist x2, each paginated 100/page up to 10
@@ -258,18 +261,32 @@ def make_app(store: Any | None = None,
 
     @app.get("/health/deep")
     async def health_deep() -> dict[str, Any]:
-        """Expensive diagnostics: Trakt sync + ranking. Never polled by Koyeb."""
+        """Expensive diagnostics: Trakt sync + how much of each row survives the join.
+
+        `in_catalog` is the number that matters now: Trakt recommends titles the
+        45k crawl may never have fetched, and those are skipped. A persistently low
+        ratio means the crawl is missing what Trakt thinks you should watch.
+        """
         history, _ = await current_history()
         started_at = time.monotonic()
-        plan = build_row(store, history, "movie", "foryou", Config())
+        rows: dict[str, Any] = {}
+        for media_type in ("movie", "series"):
+            for media_type_, kind in ((media_type, "recommendations"),
+                                      (media_type, "because")):
+                items = await _trakt_items(media_type_, kind)
+                state = build_user_state(store, history)
+                excluded = set(state.watched) | set(state.watchlist) | set(state.hidden)
+                records = ordered_records(items, store, media_type_, excluded=excluded)
+                rows[f"{media_type_}/{kind}"] = {
+                    "trakt_returned": len(items),
+                    "in_catalog": len(records),
+                    "hit_rate": round(len(records) / len(items), 3) if items else None,
+                }
         return {
-            "positive_signals": plan.positive_count,
-            "taste_ready": plan.taste.ready,
-            "rows_ready": len(plan.ranked),
-            "pool_source": plan.diagnostics.get("pool_source"),
-            "pool": plan.diagnostics.get("pool"),
+            "positive_signals": sum(1 for s in build_user_state(store, history).signals),
             "trakt_items": sum(len(history.get(k) or []) for k in
                                ("watched", "ratings", "watchlist")),
+            "rows": rows,
             "seconds": round(time.monotonic() - started_at, 2),
         }
 
@@ -476,58 +493,62 @@ def make_app(store: Any | None = None,
         base_row, lang = split_row_id(row)
         if media_type not in VALID_TYPES or base_row not in VALID_ROWS:
             return JSONResponse({"metas": []}, status_code=404)
-        plan = await _cached_plan(config, media_type, base_row,
-                                  extra.get("genre", ""), lang or "")
-        metas = to_metas(plan.ranked, skip=safe_skip(extra), limit=PAGE_SIZE)
-        return JSONResponse(catalog_response(metas), headers={"Cache-Control": "max-age=900"})
+        metas = await _trakt_row(media_type, base_row)
+        page_ = metas[safe_skip(extra): safe_skip(extra) + PAGE_SIZE]
+        return JSONResponse(catalog_response(page_),
+                            headers={"Cache-Control": "max-age=900"})
 
-    async def _cached_plan(config: Config, media_type: str, row: str,
-                           genre: str = "", lang: str = "") -> RowPlan:
-        """Rank once per (row, type, mode, genre, lang) and reuse (§11.3).
+    async def _trakt_items(media_type: str, kind: str) -> list[dict[str, Any]]:
+        """Trakt ids for a row, from cache when fresh.
 
-        Ranking 70k titles on every Stremio request would blow the client's ~10 s
-        timeout on a cold Koyeb instance; the cache makes only the FIRST request
-        pay the cost.
-
-        `genre` MUST be part of the key: it was originally omitted, so the first
-        genre a user picked was cached and served for every other genre too.
-        `lang` belongs in the key for the same reason — otherwise the merged row
-        and every per-language row would collide on one cache entry.
-
-        Two cache lifetimes:
-          * a plan with results  -> ROW_CACHE_SECONDS (15 min)
-          * an EMPTY plan        -> EMPTY_PLAN_TTL (2 min)
-
-        An empty plan is a real answer (no history yet, thin catalogue, unknown
-        genre, disabled language). Previously it was not cached at all, so every
-        Stremio request re-ran the full pipeline — Qdrant ANN included — forever.
-
-        A plan built from FALLBACK history is never cached, at any lifetime: see
-        the comment at the `is_fallback` branch.
+        Singleflighted per (media_type, kind) so a home-screen open that fires
+        several rows does not turn into several Trakt calls. On failure the last
+        good list is served (up to RECOMMENDATIONS_MAX_STALE); with no good list at
+        all the row is simply empty — the addon never 500s because Trakt is down.
         """
-        key = (row, media_type, config.mode, (genre or "").strip().casefold(),
-               (lang or "").strip().casefold())
-        now = time.monotonic()
-        cached = row_cache.get(key)
+        cached = rec_cache.fresh(media_type, kind)
         if cached is not None:
-            saved_at, saved_plan, ttl = cached
-            if now - saved_at < ttl:
-                return saved_plan
-        history, is_fallback = await current_history()
-        plan = build_row(store, history, media_type, row, config,
-                         genre=genre or None, lang=lang or None)
-        if is_fallback:
-            # A 1-second Trakt blip must not pin three fixture titles on the
-            # user's home screen for ROW_CACHE_SECONDS. Not writing the fixture
-            # into history_cache is necessary but NOT sufficient: the RowPlan
-            # built from it would still be cached for 15 minutes. Skipping the
-            # write is the actual guarantee.
-            return plan
-        # An empty plan is a real answer (cold start, thin catalogue, unknown
-        # genre, disabled language). Caching it briefly is what stops it being
-        # recomputed in full on every Stremio request, forever.
-        row_cache[key] = (now, plan, ROW_CACHE_SECONDS if plan.ranked else EMPTY_PLAN_TTL)
-        return plan
+            return cached
+        lock = rec_locks.setdefault((media_type, kind), asyncio.Lock())
+        async with lock:
+            cached = rec_cache.fresh(media_type, kind)
+            if cached is not None:
+                return cached
+            try:
+                if kind == "because":
+                    items = await _because_items(media_type)
+                else:
+                    items = await trakt.recommendations(media_type)
+            except Exception as exc:  # noqa: BLE001 - never 500 Stremio
+                log.warning("trakt %s fetch failed (%s); serving stale if any",
+                            kind, type(exc).__name__)
+                return rec_cache.stale(media_type, kind) or []
+            rec_cache.put(media_type, kind, items)
+            return items
+
+    async def _because_items(media_type: str) -> list[dict[str, Any]]:
+        """Titles related to the most recent watch, via Trakt /related."""
+        history, _ = await current_history()
+        state = build_user_state(store, history)
+        pid = state.last_watched.get(media_type)
+        record = store.get(pid) if pid else None
+        if record is None:
+            return []
+        imdb = str(record.payload.get("imdb_id") or "")
+        if not imdb:
+            return []
+        return await trakt.related(media_type, {"imdb": imdb})
+
+    async def _trakt_row(media_type: str, row: str) -> list[dict[str, Any]]:
+        """Trakt's order, joined to the catalog, never re-ranked."""
+        kind = "recommendations" if row == "foryou" else row
+        items = await _trakt_items(media_type, kind)
+        history, _ = await current_history()
+        state = build_user_state(store, history)
+        excluded = set(state.watched) | set(state.watchlist) | set(state.hidden)
+        records = ordered_records(items, store, media_type, excluded=excluded)
+        return [to_meta(r) for r in records]
+
 
     # ------------------------------------------------- library events (writes)
     async def _library(config_blob: str, media_type: str, meta_id: str,
