@@ -4,7 +4,8 @@ Nothing here touches the network or any database, so every stage of the funnel
 can be unit-tested against hand-computed fixtures.
 
 Funnel (§9.1):  query vector -> ANN top-200 -> score -> collection dedupe
-                -> director dedupe -> MMR diversity -> exploration slots -> top N
+                -> director dedupe (DIRECTOR_CAP per row) -> MMR diversity
+                -> exploration slots -> top N
 
 Score (§9.4) is a WEIGHTED SUM, not `cosine x bayes x mode`:
 
@@ -46,6 +47,12 @@ WEIGHTS = {                                    # §9.4 sim / quality / reach / e
     "gems":        (0.60, 0.35, 0.00, 0.05),
 }
 DIRECTOR_BONUS = 0.15
+# §9.5 diversity: at most this many titles from one director per ROW.
+# "Per row", not per page: _cached_plan builds the full ~200-item ranked list in
+# one pass and to_metas slices 15 at a time by `skip`, so the cap applies across
+# the whole cached row, every page. That is the better UX (nobody wants two Nolan
+# films on every page).
+DIRECTOR_CAP = 2
 CAST_BONUS = 0.05
 CAST_BONUS_MAX = 2
 DISLIKE_SIM = 0.8
@@ -231,7 +238,11 @@ def rank(
     pool.sort(key=lambda c: c.score, reverse=True)
 
     # §9.5 collections: at most one title per TMDB collection (sequel flooding)
+    # and at most DIRECTOR_CAP per director (auteur flooding). Both are applied
+    # after the score sort and BEFORE mmr(), so MMR still sees a de-flooded but
+    # still-diverse pool.
     seen_collections: set[str] = set()
+    seen_directors: dict[str, int] = {}
     collected: list[Candidate] = []
     for cand in pool:
         cid = cand.payload.get("collection_id")
@@ -240,6 +251,14 @@ def rank(
             if key in seen_collections:
                 continue
             seen_collections.add(key)
+        # An empty director must be EXEMPT, not collapsed into one bucket:
+        # unmapped series often have no creator, and bucketing them together would
+        # let two unknown-director titles starve every other unknown one.
+        director = str(cand.payload.get("director") or "").strip()
+        if director and seen_directors.get(director, 0) >= DIRECTOR_CAP:
+            continue
+        if director:
+            seen_directors[director] = seen_directors.get(director, 0) + 1
         collected.append(cand)
 
     picked = mmr(collected, limit=limit)
