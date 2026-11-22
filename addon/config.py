@@ -7,7 +7,13 @@ stateless. Parameters are agent-chosen but kept meaningful:
   mode    "blockbuster" | "gems"                       (default: MODE_DEFAULT)
   langs   list of ISO-639-1 codes to allow             (default: USER_LANGS)
   layout  "merged" | "separate" — one row per language, or one mixed row
-  gems    float 0..1 — fraction of gems-mode slots (M6; accepted, unused in v1)
+
+There is deliberately NO `gems_ratio` parameter. It existed as "fraction of
+gems-mode slots (M6; accepted, unused in v1)" and was read by nothing: rank() keys
+only on `mode == "gems"`, which selects the gems weights and bayes_gems, not a
+slot ratio. A user could set gems=0.5 and get exactly the same rows. Blobs already
+in the wild may still carry a `gems` key; `from_dict` ignores unknown keys, so
+those install links keep working and simply stop re-encoding it.
 """
 
 from __future__ import annotations
@@ -99,7 +105,6 @@ class Config:
     mode: str = "blockbuster"
     langs: tuple[str, ...] = DEFAULT_LANGS
     layout: str = DEFAULT_LAYOUT
-    gems_ratio: float = 0.0
     raw: dict[str, Any] = field(default_factory=dict, compare=False)
 
     @classmethod
@@ -126,10 +131,9 @@ class Config:
         if layout not in VALID_LAYOUTS:
             raise ConfigError(f"unknown layout {layout!r}")
 
-        try:
-            gems_ratio = min(1.0, max(0.0, float(data.get("gems") or 0.0)))
-        except (TypeError, ValueError) as exc:
-            raise ConfigError("gems must be a number between 0 and 1") from exc
+        # A legacy `gems` key is IGNORED on purpose, not rejected: install URLs
+        # issued before #4c may still carry it, and an unknown key must not turn
+        # a working install link into a 400. It is never re-encoded (see encode()).
 
         norm_langs = tuple(sorted(cleaned))
         return cls(
@@ -137,7 +141,6 @@ class Config:
             mode=mode,
             langs=norm_langs,
             layout=layout,
-            gems_ratio=gems_ratio,
             raw=dict(data),
         )
 
@@ -147,8 +150,6 @@ class Config:
             # Omitted when default so existing install URLs keep the exact blob
             # they were issued with (a changed blob is a different addon entry).
             payload["layout"] = self.layout
-        if self.gems_ratio:
-            payload["gems"] = self.gems_ratio
         return _b64url_encode(json.dumps(payload, separators=(",", ":")).encode())
 
     @classmethod
