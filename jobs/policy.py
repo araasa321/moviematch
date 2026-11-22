@@ -67,9 +67,18 @@ def bayes_stats(payloads: Iterable[dict[str, Any]]
     C      = shrinkage mean of vote_average over items with
              vote_count >= MIN_VOTES_FOR_MEAN[bucket]:
              (n*C_s + K*C_global) / (n + K)
-    m      = PRIOR_FRACTION * median(vote_count) of the stratum, clamped to
-             [M_MIN, M_MAX]
+    m      = PRIOR_FRACTION * median(vote_count) of the stratum, over items that
+             clear the SAME vote floor as C, clamped to [M_MIN, M_MAX]
     m_gems = max(10.0, GEMS_M_FRACTION * m)
+
+    The vote floor on `m` is not cosmetic. The catalog deliberately contains a
+    large tail of zero- and low-vote titles (the recent-release crawl ingests
+    unreleased films on purpose, and `should_index` admits them via the recency
+    clause). Including that tail in median(vote_count) drags the median down to a
+    few hundred, so PRIOR_FRACTION * median lands under M_MIN and m collapses to
+    20. At m=20 a title with 10 votes keeps 33 % of its raw rating, i.e. the
+    Bayesian smoothing stops working — "8.9 from 12 people" walks straight back in.
+    Observed on a live 45k catalog: m=20 for three of four strata.
 
     Compute this over the WHOLE catalog, never over `iter_discover(max_pages=...)`.
     That sample is the top pages by popularity.desc — overwhelmingly high-vote
@@ -102,7 +111,8 @@ def bayes_stats(payloads: Iterable[dict[str, Any]]
                 n + SHRINK_PSEUDO_COUNT)
         else:
             c = c_global
-        counts = [float(m.get("vote_count") or 0) for m in members]
+        counts = [float(m.get("vote_count") or 0) for m in members
+                  if float(m.get("vote_count") or 0) >= floor]
         m = PRIOR_FRACTION * _median(counts) if counts else 0.0
         m = min(M_MAX, max(M_MIN, m))
         # Under a stratified m, a fixed m_gems=300 would make bayes_gems barely
