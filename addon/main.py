@@ -46,6 +46,7 @@ from .store import QdrantStore
 from .stremio import (PAGE_SIZE, build_manifest, catalog_response, parse_extra,
                       safe_skip, split_row_id)
 from .trakt import TraktClient, TraktConfig
+from .trakt_token import TokenStore
 
 # Trakt decides what is in these rows now (#4b follow-up):
 #   foryou  -> /recommendations/{movies|shows}, Trakt's order preserved
@@ -110,6 +111,13 @@ def make_app(store: Any | None = None,
     store = store if store is not None else (qdrant_store or _fixture_store(dim))
     log.info("serving store: %s", "qdrant" if qdrant_store else "fixture")
     trakt = trakt or TraktClient(TraktConfig.from_env(os.environ))
+    # Give the client somewhere to persist rotated OAuth tokens. Without this the
+    # token pair lives only in memory and every restart falls back to the (now
+    # expired) env token — which is exactly how the addon sat on a 401 for days.
+    if getattr(trakt, "store", None) is None:
+        token_qdrant_cfg = QdrantConfig.from_env(os.environ)
+        trakt.store = TokenStore(QdrantClient(token_qdrant_cfg)
+                                 if token_qdrant_cfg.configured else None)
     if languages is None:
         qdrant_cfg = QdrantConfig.from_env(os.environ)
         languages = LanguageDetector(QdrantClient(qdrant_cfg)
@@ -242,13 +250,21 @@ def make_app(store: Any | None = None,
         store_size = len(store) if hasattr(store, "__len__") else None
         if total is None:
             total = store_size
+        # Real auth state, not just "an env var exists". This key used to read
+        # "configured" while every Trakt call was 401ing, which is why a dead token
+        # went unnoticed for days. No network call: it reports what the client
+        # already knows.
+        try:
+            auth = await trakt.auth_status()
+        except Exception as exc:  # noqa: BLE001 - health must never 500
+            auth = {"trakt_auth": "unknown", "trakt_auth_error": type(exc).__name__}
         return {
             "status": "ok",
             "version": __version__,
             "store": "qdrant" if isinstance(store, QdrantStore) else "fixture",
             "qdrant": qdrant_status,
             "trakt": "trakt" if trakt.config.configured else "fixture",
-            "trakt_auth": "configured" if trakt.config.configured else "fixture",
+            **auth,
             "catalog_size": total,
             "store_size": store_size,
             "row_cache_size": len(row_cache),
@@ -523,8 +539,10 @@ def make_app(store: Any | None = None,
         try:
             activities = await trakt.last_activities()
         except Exception as exc:  # noqa: BLE001 - never 500 Stremio
-            log.debug("last_activities probe failed (%s); keeping cache",
-                      type(exc).__name__)
+            # WARNING, not DEBUG: a failing probe is what silently froze this addon
+            # for days. It is rate-limited to once a minute, so the log stays cheap.
+            log.warning("last_activities probe failed (%s: %s); keeping cache",
+                        type(exc).__name__, str(exc)[:160])
             return False
         changed = rec_cache.note_activities(activities_fingerprint(activities))
         # The history cache is what rows are filtered by; drop it so a title just

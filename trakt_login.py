@@ -91,13 +91,32 @@ def main() -> int:
         )
         if status == 200 and "access_token" in data:
             print("\n   APPROVED.")
-            print(f"   expires_in ~{data.get('expires_in', 0) // 86400} days")
+            print(f"   expires_in ~{data.get('expires_in', 0) // 3600} hours")
             print(f"   scope: {data.get('scope', '')}")
             if data.get("refresh_token"):
-                print("   (refresh token saved in the JSON below; keep it private)")
+                print("   (the refresh token below is SINGLE-USE and rotates on "
+                      "every refresh; keep it private)")
             print("\n--- TRAKT_ACCESS_TOKEN ---")
             print(data["access_token"])
             print("--- END ---")
+            if data.get("refresh_token"):
+                print("\n--- TRAKT_REFRESH_TOKEN ---")
+                print(data["refresh_token"])
+                print("--- END ---")
+            print("\nSet all three on the service, or the token dies in ~7 days:")
+            print("   TRAKT_ACCESS_TOKEN=<above>")
+            if data.get("refresh_token"):
+                print("   TRAKT_REFRESH_TOKEN=<above>")
+            else:
+                print("   TRAKT_REFRESH_TOKEN=<none returned: refresh will not work>")
+            print("   TRAKT_REDIRECT_URI=<the URI registered on your Trakt app>")
+            print("   TRAKT_CLIENT_SECRET=<your app's secret>")
+            print("Refreshing needs the redirect URI to match the app EXACTLY, "
+                  "and TRAKT_REFRESH_TOKEN is required for auto-refresh.")
+            if not data.get("refresh_token"):
+                print("\nWARNING: no refresh_token in the response. Trakt only "
+                      "returns one when your app has the right scopes; the "
+                      "addon will stop working when the access token expires.")
             print(json.dumps({"expires_in": data.get("expires_in"),
                               "token_type": data.get("token_type")}, indent=1))
             return 0
